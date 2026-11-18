@@ -398,6 +398,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func useBuiltAppIconAsCover(for gameID: String) {
+        guard let index = games.firstIndex(where: { $0.id == gameID }),
+              let app = games[index].allCompiledApps.first,
+              FileManager.default.fileExists(atPath: app.fileURL.path),
+              let cover = saveAppIcon(at: app.fileURL, identifier: gameID) else {
+            alertMessage = "Build or import the game app before using its icon as cover art."
+            return
+        }
+        games[index].coverPath = cover.path
+        saveLibrary()
+    }
+
     func setBuildIcon(for gameID: String, from sourceURL: URL) {
         guard ["png", "jpg", "jpeg"].contains(sourceURL.pathExtension.lowercased()),
               let image = NSImage(contentsOf: sourceURL), image.isValid else {

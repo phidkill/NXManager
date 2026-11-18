@@ -1,58 +1,35 @@
-# NXManager — état de l'implémentation (0.1.0)
+# NXManager implementation status
 
-Date : 18 novembre 2026
+Date: 18 November 2026
 
-## Native SwiftUI edition
+## Native SwiftUI app
 
-The native SwiftUI app is in `NativeApp/`. It includes a horizontal poster carousel, click-or-drop package zones, compiled NXNative `.app` import and launch, custom cover art, a System / Light / Dark theme selector, `prod.keys` settings, NXNative install/update, JSON build progress, and a Finder shortcut to each game's save folder. `./build_macos.sh` creates `dist/NXManager.app` on Apple Silicon.
+The supported NXManager interface is the native macOS app in `NativeApp/`. It provides a game library, package and compiled-app import, NUP support, background builds with JSON progress, custom cover art, game-app-icon cover reuse, online banner lookup, controller calibration, HID settings, and per-game build status/logs. The app stores its library in `~/Library/Application Support/NXManager/library.json` and does not move original package files.
 
-This edition uses its own JSON library in `~/Library/Application Support/NXManager/`. It does not automatically migrate the earlier Python interface's SQLite catalogue. It includes HID controller calibration and retains each game's latest build status and log, but it does not yet provide the Python edition's multi-build history view. NUP Title IDs are read from the generated app after a successful build; before then, save-folder access and automatic Title-ID artwork lookup are unavailable. A real game build still requires NXNative's dependencies; compiling the native interface does not validate a game build.
+The included `dist/NXManager-macOS.zip` is a prebuilt app archive. Rebuild the app from current sources with `./build_macos.sh`; the script writes `dist/NXManager.app`.
 
-## Implémenté dans cette livraison
+## NXNative setup
 
-- Application Python / PySide6 avec les trois rubriques principales Games, Controllers et Import.
-- Thèmes clair et sombre.
-- Persistance SQLite des jeux, packages, paramètres, profils de manettes et historiques de build.
-- Import XCI / NSP / NSZ / XCZ, extensions insensibles à la casse.
-- Liens symboliques vers les packages originaux : aucun déplacement ni copie automatique des packages.
-- Le lien de package est remplacé lors de la réimportation d'un package homonyme depuis un autre emplacement.
-- Lecture indicative du Title ID et de la version depuis les marqueurs du nom de fichier.
-- Détection des chemins de package manquants et action de relocalisation.
-- Association d'un package principal et d'une update à partir du Title ID lorsque celui-ci est présent dans le nom.
-- Sélection persistante du chemin `prod.keys`; l'interface ne prétend pas valider son contenu.
-- Installation gérée par clonage Git, sélection d'une installation existante, mise à jour avec branche de sauvegarde et restauration du commit précédent.
-- Lancement asynchrone du script officiel de NX Native, événements JSON, logs, annulation, historique et vérification du `.app` de sortie.
-- Dossier de travail isolé par jeu dans Application Support.
-- Jaquette manuelle et récupération de l'icône transmise par l'événement `game` du moteur lorsqu'elle est disponible.
-- Accès aux captures NX Native par Title ID.
-- Détection GameController (PyObjC), assistant d'entrée pour boutons / D-pad / directions des sticks, sauvegarde de profils globaux ou par jeu et périphérique.
-- Écriture prudente de `DM_HID_MAP` et `DM_HID_LOG` dans le `env.txt` par jeu, avec sauvegarde du fichier précédent.
-- Tests unitaires du parseur de package, de la base et du gestionnaire `env.txt`.
-- Tests Swift des helpers HID, des profils de manette, de l'état de bibliothèque et de la validation des Title IDs.
+The first-launch wizard checks Xcode and Python, helps select `prod.keys`, and can clone NXNative and prepare an isolated Python environment with NXNative's Python modules. Switch 1 builds need a readable `prod.keys`; Switch 2 NUP builds do not.
 
-## Limites connues — ne pas masquer
+A complete guided initializer for the NXNative system toolchain is planned. The current app does not install Xcode, Metal, Homebrew, Git, XcodeGen, zstd, glslang, or .NET automatically. Users still need to install system tools according to NXNative's current upstream requirements. These may change over time.
 
-1. **Artefact macOS préexistant** : `dist/NXManager-macOS.zip` contient un build de l'app native daté du 18 novembre, antérieur aux modifications présentement décrites. Il ne valide donc pas ces changements; il faut reconstruire et vérifier l'app depuis le code actuel.
-2. **Identification des packages Switch 1** : le Title ID et la version sont lus depuis des motifs courants de noms de fichiers. Ce n'est pas une lecture des métadonnées internes. Le moteur NX Native reste l'autorité d'analyse. Pour NUP, le Title ID devient disponible dans NXManager après un build réussi et la lecture du `Info.plist` généré.
-3. **Jaquettes automatiques** : l'icône est récupérée quand le moteur fournit son chemin dans l'événement `game`; avant ce premier build, l'utilisateur peut choisir une image manuellement.
-4. **Manettes** : la calibration GameController enregistre les éléments standardisés transmis par macOS. Elle ne récupère pas les usages HID bruts.
-5. **DM_HID_MAP** : la documentation NX Native l'expose pour les manettes HID brutes non reconnues par GameController, avec les valeurs de boutons relevées par `DM_HID_LOG`. L'interface fournit la configuration documentée A/B/X/Y par jeu. Elle ne remappe pas les manettes déjà prises en charge par GameController.
-6. **Sticks** : la calibration directionnelle est enregistrée dans les profils NXManager, mais aucun format de remapping des axes de sticks n'est documenté dans l'interface NX Native utilisée ici. Aucun remapping de sticks en jeu n'est donc annoncé.
-7. **Annulation des builds natifs** : NXManager envoie SIGTERM puis SIGKILL au processus après cinq secondes s'il ne s'arrête pas. Les éventuels processus enfants du moteur ne sont pas explicitement gérés comme un groupe de processus.
-8. **Validation matérielle** : la détection USB/Bluetooth, la calibration et les événements de périphériques doivent être testés avec les manettes réellement utilisées sur macOS 27.x.
-9. **Dépendances NX Native** : l'application affiche un diagnostic, mais n'installe pas silencieusement Xcode, Metal Toolchain, Homebrew ou les outils système.
-10. **Packaging** : signature Developer ID, notarisation et tests Finder restent à effectuer sur le Mac cible.
+## Known limitations
 
-## Vérifications exécutées dans l'environnement de développement
+1. Switch 1 Title IDs and versions are inferred from common filename markers; NXNative remains the authority for package metadata.
+2. For NUP-only games, NXManager learns the Title ID from the generated app after a successful build. Save-folder shortcuts and Title-ID artwork lookup are unavailable before that build.
+3. Automatic banner artwork lookup requires network access; users can choose cover art manually or reuse the latest built app's icon without rebuilding.
+4. HID calibration records controller inputs. `DM_HID_MAP` supports the documented face-button mapping; NXNative does not document stick-axis remapping through this interface.
+5. Cancelled builds send SIGTERM and are force-stopped with SIGKILL after five seconds. Descendant processes are not explicitly managed as a process group.
+6. Developer ID signing, notarization, and final Finder verification remain release tasks.
 
-- `python3 -m compileall -q nxmanager tests` : réussi.
-- `./tests/run_native_unit_tests.sh` : réussi, y compris la validation du Title ID.
-- Vérification ciblée du remplacement de lien symbolique : réussie.
-- `python3 -m pytest -q` n'a pas pu être lancé : `pytest` n'est pas installé dans l'environnement courant.
-- Le build Xcode a été tenté, mais la compilation de `ContentView.swift` échoue lorsque le plug-in de macro `SwiftUIMacros` renvoie une réponse mal formée. Le build complet reste à revalider dans un environnement Xcode fonctionnel.
+## Verification
 
-## Points d'intégration upstream
+- `./tests/run_native_unit_tests.sh` covers Title ID validation, library status, HID configuration, and controller profile helpers.
+- `swiftc -frontend -parse NativeApp/ContentView.swift NativeApp/AppModel.swift` checks Swift syntax without building the UI target.
+- Full UI, physical controller, NXNative installation, and real game-build integration still require validation on the target Mac.
 
-- Build JSON et options du script : `docs/frontends.md` et `scripts/build_ipa_from_nsp.py`.
-- `env.txt` par jeu et `DM_HID_MAP` / `DM_HID_LOG` : `docs/playing.md`.
-- Exigences macOS / Xcode / Python : `README.md` upstream.
+## Upstream references
+
+- Build protocol: `https://github.com/seedds/nxnative/blob/main/docs/frontends.md` and `scripts/build_ipa_from_nsp.py`.
+- macOS, Xcode, Python, and system-tool requirements: the upstream `README.md`.

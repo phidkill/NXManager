@@ -597,7 +597,7 @@ private struct GamePoster: View {
         VStack(alignment: .leading, spacing: 9) {
             ZStack(alignment: .bottomLeading) {
                 if let path = game.coverPath, let image = NSImage(contentsOfFile: path) {
-                    Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
+                    CoverArtwork(image: image, sourcePath: path, size: posterSize)
                 } else {
                     LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: "gamecontroller.fill")
@@ -1885,6 +1885,25 @@ struct SettingsView: View {
     }
 }
 
+private struct CoverArtwork: View {
+    let image: NSImage
+    let sourcePath: String
+    let size: CGFloat
+
+    private var isAppIcon: Bool {
+        let filename = URL(fileURLWithPath: sourcePath).lastPathComponent.lowercased()
+        return filename.hasSuffix("-icon.png") || filename.contains("-build-icon.")
+    }
+
+    var body: some View {
+        Image(nsImage: image).resizable().scaledToFill()
+            .frame(width: size, height: size)
+            .scaleEffect(isAppIcon ? 1.2 : 1)
+            .frame(width: size, height: size)
+            .clipped()
+    }
+}
+
 private struct GameLibraryTile: View {
     let game: Game
     let selected: Bool
@@ -1913,8 +1932,7 @@ private struct GameLibraryTile: View {
             VStack(alignment: .leading, spacing: 7) {
                 ZStack(alignment: .topTrailing) {
                     if let path = game.coverPath, let image = NSImage(contentsOfFile: path) {
-                        Image(nsImage: image).resizable().scaledToFill()
-                            .frame(width: size, height: size).clipped()
+                        CoverArtwork(image: image, sourcePath: path, size: size)
                     } else {
                         ZStack {
                             Color.accentColor.opacity(0.75)
@@ -2002,6 +2020,13 @@ struct GameDetailView: View {
                     }
                     Button { choosePoster() } label: { Label("Choose Cover Art…", systemImage: "photo") }
                         .buttonStyle(.borderless)
+                    if !current.allCompiledApps.isEmpty {
+                        Button { model.useBuiltAppIconAsCover(for: current.id) } label: {
+                            Label("Use Built App Icon as Cover", systemImage: "app.dashed")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Reuse the icon from the latest built app; no rebuild is needed.")
+                    }
                     Button { chooseBuildIcon() } label: {
                         Label(current.buildIconPath == nil ? "Choose App Icon…" : "Change App Icon…", systemImage: "app.dashed")
                     }

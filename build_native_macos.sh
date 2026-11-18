@@ -22,4 +22,4 @@ xcrun actool --compile "$ROOT/dist/NXManager.app/Contents/Resources" \
   -c 'Add :CFBundleIconName string AppIcon' \
   "$ROOT/dist/NXManager.app/Contents/Info.plist"
 codesign --force --deep --sign - "$ROOT/dist/NXManager.app"
-echo "Application créée : $ROOT/dist/NXManager.app"
+echo "Application created: $ROOT/dist/NXManager.app"
