@@ -1,26 +1,26 @@
 # NXManager
 
-NXManager includes a native SwiftUI app for macOS and an earlier Python + PySide6 front end. The native app is the recommended interface. Both keep game packages at their original locations and maintain a separate library under `~/Library/Application Support/NXManager/`.
+NXManager includes a native SwiftUI app for macOS and an earlier Python + PySide6 front end. The native app is the recommended interface. Both keep game packages at their original locations and store their own catalogue under `~/Library/Application Support/NXManager/`; the catalogues are separate and are not synchronized.
 
 ## Native macOS app
 
 The SwiftUI interface has a horizontal game-poster carousel, dashed click-or-drop zones for base packages and updates, and a library for source packages and compiled Mac apps. Selecting a compiled app adds it immediately when its `Info.plist` has NXNative's 16-digit `DMTitleID` and the app executable is present. Choose custom cover art in Game Details, launch an app from its poster, or remove its library entry without deleting the app itself. Game Details and the Games context menu open NXNative's per-game `save/` folder. Source packages are linked instead of copied, and builds run in the background while NXManager follows NXNative's JSON progress events.
 
-Build the Apple Silicon app with Xcode 27 or newer:
+Build the native app on an Apple Silicon Mac with Xcode and its command-line tools selected:
 
 ```bash
 ./build_macos.sh
 ```
 
-The result is `dist/NXManager.app`. Open it from Finder. NXManager itself is a small native app; building games still requires NXNative's current dependencies, including Python 3.12+, Xcode, and the tools listed by the upstream project. The app does not bundle those tools or install system dependencies. Choose **Settings → Install NXNative** to clone the engine. Switch 1 packages need a readable `prod.keys`; Switch 2 `.nup` containers do not.
+The result is `dist/NXManager.app`. Open it from Finder. Building games requires NXNative's current dependencies, including Python 3.12+, macOS 26.6 or later, Xcode 27.2, and the tools listed by the upstream project. NXManager does not bundle or install system dependencies. Choose **Settings → Install NXNative** to clone the engine; the app prepares an isolated Python environment and installs NXNative's Python packages when you start the first build. Switch 1 packages need a readable `prod.keys`; Switch 2 `.nup` containers do not. Check the upstream README for current requirements.
 
-The native interface does not yet include the earlier Python edition's controller calibration or build-history views. The packages, library, preferences and engine checkout use the native app's own data store; existing data in the earlier SQLite catalogue is not migrated automatically.
+The native interface includes controller calibration and retains the latest build status and log for each game, but it does not yet provide the Python edition's multi-build history view. Its library, preferences and engine checkout use the native app's own data store; existing data in the earlier SQLite catalogue is not migrated automatically. The library can look up banner artwork online by Title ID; artwork lookup is optional and requires network access.
 
 ## Earlier Python interface
 
 The Python + PySide6 front end remains available as an earlier edition. Its UI contains Games / Controllers / Import pages, SQLite persistence, controller calibration storage, and the workflows documented below.
 
-> **Current delivery: source release 0.1.0.** The application shell, Games / Controllers / Import pages, SQLite persistence, package registration, engine clone/update workflow, JSON build monitor, build history, screenshots folder access, themes, and controller calibration storage are implemented in this source release. This is not yet a validated production `.app`: macOS hardware testing, package metadata verification, end-to-end builds, and the NX Native controller-remapping contract still need validation on the target Mac.
+> **Earlier edition, source release 0.1.0.** The application shell, Games / Controllers / Import pages, SQLite persistence, package registration, engine clone/update workflow, JSON build monitor, build history, screenshots folder access, themes, and controller calibration storage are implemented. The Python edition's packaged `.app` and hardware workflows still need validation on the target Mac.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ NXManager does not install system dependencies silently. Use Settings → Diagno
 ## Run from source
 
 ```bash
-cd NXManager
+# Run these commands from the repository root.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -56,6 +56,10 @@ The script creates `dist/NXManager.app` using PyInstaller. It checks for Python 
 
 ## Data layout
 
+The Python and native editions use separate catalogues. They do not migrate or synchronize game records. Their default `PackageLinks/`, `Builds/`, and `Engine/nxnative/` locations overlap, so they can reuse the same package links, build work folders, and engine checkout.
+
+### Earlier Python edition
+
 ```text
 ~/Library/Application Support/NXManager/
 ├── Data/
@@ -68,9 +72,23 @@ The script creates `dist/NXManager.app` using PyInstaller. It checks for Python 
 └── Backups/
 ```
 
+### Native SwiftUI edition
+
+```text
+~/Library/Application Support/NXManager/
+├── library.json
+├── Data/
+│   ├── PackageLinks/<game-id>/
+│   ├── Builds/<game-id>/
+│   ├── Covers/
+│   └── Artwork/
+├── Engine/nxnative/
+└── Engine/PythonEnvironment/
+```
+
 NX Native's own per-game saves, settings, screenshots and logs remain in the locations documented by NX Native, not copied into NXManager.
 
-## Controller calibration: important limitation
+## Earlier Python edition: controller calibration limitation
 
 The Controllers page uses Apple's GameController framework (through PyObjC) to detect standard controller elements and guide a button / D-pad / stick calibration. Profiles can be stored globally or associated with a game and a detected device.
 
@@ -80,22 +98,23 @@ The calibration wizard's GameController result is a record of standardized logic
 
 ## Package identification
 
-The native importer accepts `.XCI`, `.NSP`, `.NSZ`, `.XCZ` and `.NUP` case-insensitively. For Switch 2, select a folder containing exactly one `.nup` file; NXNative reads the title metadata from the container and builds it without `prod.keys`. NUP folders cannot be mixed with Switch 1 packages. For other package types NXManager reads Title ID and version from common filename markers such as `[0100...][v0]`; NXNative performs the authoritative package analysis during its build.
+The native importer accepts `.XCI`, `.NSP`, `.NSZ`, `.XCZ` and `.NUP` case-insensitively. For Switch 2, select a `.nup` file directly or import a folder containing exactly one `.nup` file; NXNative reads the title metadata from the container and builds it without `prod.keys`. NUP folders cannot be mixed with Switch 1 packages. Before the first successful NUP build, NXManager does not know the container's Title ID, so its save-folder shortcut and automatic Title-ID artwork lookup are unavailable. After the build, NXManager reads the Title ID from the generated app's `Info.plist` and enables those features. For other package types NXManager reads Title ID and version from common filename markers such as `[0100...][v0]`; NXNative performs the authoritative package analysis during its build.
 
 ## Build flow
 
-NXManager invokes the upstream `scripts/build_ipa_from_nsp.py` with `--platform mac-app`, `--progress json`, `--work-dir`, and `-o`. It passes `-k` for Switch 1 packages and omits it for NUP containers. It parses the documented newline-delimited JSON events, checks the process exit code, and verifies that the requested `.app` output exists. Cancelling sends a termination signal to the process.
+Both editions invoke the upstream `scripts/build_ipa_from_nsp.py` with `--platform mac-app`, `--progress json`, `--work-dir`, and `-o`. They pass `-k` for Switch 1 packages and omit it for NUP containers. They parse JSON progress events, check the process exit code, and verify the requested `.app` output. Cancelling sends a termination signal; the native edition force-stops the process if it has not exited after five seconds.
 
-The app does not fabricate percentages: when the engine reports no countable fraction, the progress bar remains indeterminate. Detailed tool logs are kept under NXManager Logs; the engine also keeps its own build logs.
+The app does not fabricate percentages: when the engine reports no countable fraction, the progress bar remains indeterminate. The Python edition writes detailed logs under `Logs/`; the native edition retains the latest build log in `library.json`. NXNative also keeps its own build logs.
 
 ## Tests
 
 ```bash
 python -m pytest
 python -m compileall -q nxmanager
+./tests/run_native_unit_tests.sh
 ```
 
-The tests currently cover package filename parsing and supported extensions. The full macOS UI, controller framework, engine installation/update, and real game build need on-device integration tests.
+Install the Python test dependency with `python -m pip install -e '.[test]'`. Python unit tests cover package parsing, database operations, stale package-link replacement, and per-game environment configuration. The Swift unit test script covers Title ID validation, library status, HID configuration, and controller profile helpers. The macOS UI, physical controller behavior, engine installation/update, and real game builds still need on-device integration tests.
 
 ## Upstream references
 

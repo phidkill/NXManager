@@ -3,6 +3,8 @@ import Foundation
 @main
 enum NativeUnitTests {
     static func main() {
+        precondition(NXTitleID.normalize("0100f2c0115b6000") == "0100F2C0115B6000")
+        precondition(NXTitleID.normalize("invalid") == nil)
         expect(.building, last: "building", compiled: false, base: true)
         expect(.failed, last: "failed", compiled: true, base: true)
         expect(.readyToPlay, last: nil, compiled: true, base: true)

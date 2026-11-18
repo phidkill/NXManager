@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 
 @MainActor
@@ -327,8 +328,7 @@ final class AppModel: ObservableObject {
             alertMessage = "Choose a valid macOS app bundle."
             return
         }
-        guard let rawTitleID = bundle.object(forInfoDictionaryKey: "DMTitleID") as? String,
-              rawTitleID.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil else {
+        guard let titleID = NXTitleID.normalize(bundle.object(forInfoDictionaryKey: "DMTitleID") as? String) else {
             alertMessage = "This app is not recognized as an NXNative Switch game. Its Info.plist must contain a valid 16-character DMTitleID."
             return
         }
@@ -337,7 +337,6 @@ final class AppModel: ObservableObject {
             alertMessage = "This NXNative game app is incomplete: its main executable could not be found."
             return
         }
-        let titleID = rawTitleID.uppercased()
         let displayName = (bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
             ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
             ?? appURL.deletingPathExtension().lastPathComponent
@@ -664,17 +663,8 @@ final class AppModel: ObservableObject {
         }
 
         let importCheck = "import lz4.block, capstone, fontTools, nsz, zbic; import sys; sys.version_info < (3, 14) and __import__('backports.zstd')"
-        let check = Process()
-        check.executableURL = URL(fileURLWithPath: managedPython)
-        check.arguments = ["-c", importCheck]
-        do {
-            try check.run()
-            check.waitUntilExit()
-        } catch {
-            throw NSError(domain: "NXManager", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "The managed Python environment could not start: \(error.localizedDescription)"])
-        }
-        guard check.terminationStatus != 0 else { return managedPython }
+        let check = try await Self.runResult(managedPython, ["-c", importCheck])
+        guard check.status != 0 else { return managedPython }
 
         buildMessage = "Installing NXNative Python dependencies…"
         let packages = ["lz4", "capstone>=5,<6", "fonttools", "nsz", "zbic",
@@ -734,6 +724,10 @@ final class AppModel: ObservableObject {
                     let result = self.buildResult(exitCode: task.terminationStatus, output: output)
                     if let index = self.games.firstIndex(where: { $0.id == game.id }) {
                         if result.status == "success" {
+                            if let bundle = Bundle(url: output),
+                               let titleID = NXTitleID.normalize(bundle.object(forInfoDictionaryKey: "DMTitleID") as? String) {
+                                self.games[index].titleID = titleID
+                            }
                             let previousApps = self.games[index].allCompiledApps.filter { $0.path != output.path }
                             var appsThatCouldNotBeRemoved: [CompiledApp] = []
                             for app in previousApps where FileManager.default.fileExists(atPath: app.fileURL.path) {
@@ -761,7 +755,11 @@ final class AppModel: ObservableObject {
                     }
                     self.buildGameID = nil
                     self.buildHasStarted = false
+                    self.process = nil
                     self.saveLibrary()
+                    if result.status == "success" {
+                        self.ensureBannerArtwork(for: game.id)
+                    }
                 }
             }
             try process.run()
@@ -782,8 +780,15 @@ final class AppModel: ObservableObject {
 
     func cancelBuild() {
         cancelRequested = true
-        process?.terminate()
         buildMessage = "Stopping build…"
+        guard let process, process.isRunning else { return }
+        process.terminate()
+        Task { @MainActor [weak self, weak process] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard let self, let process, self.process === process,
+                  self.cancelRequested, process.isRunning else { return }
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
     }
 
     func launch(_ game: Game) {
@@ -958,6 +963,15 @@ final class AppModel: ObservableObject {
     }
 
     private static func run(_ executable: String, _ arguments: [String]) async throws -> String {
+        let result = try await runResult(executable, arguments)
+        guard result.status == 0 else {
+            throw NSError(domain: "NXManager", code: Int(result.status),
+                          userInfo: [NSLocalizedDescriptionKey: result.output.isEmpty ? "The command failed." : result.output])
+        }
+        return result.output
+    }
+
+    private static func runResult(_ executable: String, _ arguments: [String]) async throws -> (status: Int32, output: String) {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
@@ -972,8 +986,7 @@ final class AppModel: ObservableObject {
                 try? logHandle?.close()
                 let output = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
                 try? FileManager.default.removeItem(at: logURL)
-                if task.terminationStatus == 0 { continuation.resume(returning: output) }
-                else { continuation.resume(throwing: NSError(domain: "NXManager", code: Int(task.terminationStatus), userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "The command failed." : output])) }
+                continuation.resume(returning: (task.terminationStatus, output))
             }
             do { try process.run() } catch {
                 try? logHandle?.close()

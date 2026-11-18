@@ -1,5 +1,14 @@
 import Foundation
 
+enum NXTitleID {
+    static func normalize(_ value: String?) -> String? {
+        guard let value, value.range(of: #"^[0-9A-Fa-f]{16}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return value.uppercased()
+    }
+}
+
 struct GamePackage: Identifiable, Codable, Hashable {
     var id = UUID()
     var path: String

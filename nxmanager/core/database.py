@@ -99,6 +99,10 @@ class Database:
             con.execute("UPDATE packages SET path=?,filename=?,extension=?,version=?,role=?,size=? WHERE id=?",
                         (str(p), p.name, p.suffix.lower(), version, role, p.stat().st_size, package_id))
 
+    def remove_package(self, package_id):
+        with self.connect() as con:
+            con.execute("DELETE FROM packages WHERE id=?", (package_id,))
+
     def set_cover(self, game_id, path):
         with self.connect() as con:
             con.execute("UPDATE games SET cover_path=? WHERE id=?", (str(path), game_id))

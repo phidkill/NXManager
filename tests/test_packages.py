@@ -1,5 +1,7 @@
 from pathlib import Path
 import pytest
+from nxmanager.core.database import Database
+from nxmanager.core import packages
 from nxmanager.core.packages import inspect_package, SUPPORTED, base_title_id_for, package_matches_base
 
 @pytest.mark.parametrize("ext", [".xci", ".NSP", ".nsz", ".XCZ"])
@@ -50,3 +52,25 @@ def test_same_title_id_remains_accepted_for_legacy_dumps():
 
 def test_different_update_is_rejected():
     assert not package_matches_base("0100F2C0115B7800", "0100F2C0115B6000")
+
+
+def test_reimport_replaces_stale_package_symlink(tmp_path, monkeypatch):
+    link_root = tmp_path / "links"
+    monkeypatch.setattr(packages, "PACKAGE_LINKS_DIR", link_root)
+    db = Database(tmp_path / "catalogue.sqlite3")
+    original = tmp_path / "first" / "Game [0100F2C0115B6000][v0].nsp"
+    replacement = tmp_path / "second" / original.name
+    original.parent.mkdir()
+    replacement.parent.mkdir()
+    original.write_bytes(b"old package")
+    replacement.write_bytes(b"replacement package")
+
+    game, _ = packages.register_package(db, original)
+    link = link_root / game["id"] / original.name
+    assert link.resolve() == original.resolve()
+
+    packages.register_package(db, replacement)
+
+    assert link.is_symlink()
+    assert link.resolve() == replacement.resolve()
+    assert {package["path"] for package in db.packages(game["id"])} == {str(replacement.resolve())}

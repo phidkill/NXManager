@@ -73,11 +73,17 @@ def register_package(db, path: Path, role=None):
         package_dir = PACKAGE_LINKS_DIR / game_id
     package_dir.mkdir(parents=True, exist_ok=True)
     link = package_dir / info["path"].name
-    if not link.exists():
-        try:
+    if link.is_symlink():
+        if link.resolve() != info["path"]:
+            link.unlink()
             link.symlink_to(info["path"])
-        except FileExistsError:
-            pass
+    elif link.exists():
+        raise FileExistsError(f"Package link path is occupied by a non-symlink: {link}")
+    else:
+        link.symlink_to(info["path"])
+    for package in db.packages(game_id):
+        if package["filename"] == info["path"].name and package["path"] != str(info["path"]):
+            db.remove_package(package["id"])
     db.upsert_game(game_id, info["base_title_id"], name, package_dir, info["path"].parent)
     db.add_package(game_id, info["path"], info["version"], info["role"])
     return db.game(game_id), info
