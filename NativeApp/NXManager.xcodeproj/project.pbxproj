@@ -1,0 +1,39 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		A10000000000000000000001 /* NXManager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NXManager.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000002 /* NXManagerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXManagerApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A10000000000000000000004 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A10000000000000000000005 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A10000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000025 /* GameLibraryStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLibraryStatus.swift; sourceTree = "<group>"; };
+		A10000000000000000000027 /* NXNativeHIDConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NXNativeHIDConfiguration.swift; sourceTree = "<group>"; };
+		A10000000000000000000029 /* ControllerCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerCalibration.swift; sourceTree = "<group>"; };
+		A10000000000000000000007 /* NXManager */ = {isa = PBXGroup; children = (A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000025, A10000000000000000000027, A10000000000000000000029,); sourceTree = "<group>"; };
+		A10000000000000000000008 /* Products */ = {isa = PBXGroup; children = (A10000000000000000000001,); name = Products; sourceTree = "<group>"; };
+		A10000000000000000000009 /* Project */ = {isa = PBXGroup; children = (A10000000000000000000007, A10000000000000000000008,); sourceTree = "<group>"; };
+		A10000000000000000000010 /* NXManagerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002; };
+		A10000000000000000000011 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003; };
+		A10000000000000000000012 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004; };
+		A10000000000000000000013 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005; };
+		A10000000000000000000026 /* GameLibraryStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000025; };
+		A10000000000000000000028 /* NXNativeHIDConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000027; };
+		A10000000000000000000030 /* ControllerCalibration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000029; };
+		A10000000000000000000014 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010, A10000000000000000000011, A10000000000000000000012, A10000000000000000000013, A10000000000000000000026, A10000000000000000000028, A10000000000000000000030,); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000015 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000016 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000017 /* NXManager */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000020; buildPhases = (A10000000000000000000014, A10000000000000000000015, A10000000000000000000016,); buildRules = (); dependencies = (); name = NXManager; productName = NXManager; productReference = A10000000000000000000001; productType = "com.apple.product-type.application"; };
+		A10000000000000000000018 /* Project */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 2720; }; buildConfigurationList = A10000000000000000000019; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base,); mainGroup = A10000000000000000000009; productRefGroup = A10000000000000000000008; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000017,); };
+		A10000000000000000000021 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = app.nxmanager.native; PRODUCT_NAME = NXManager; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A10000000000000000000022 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = app.nxmanager.native; PRODUCT_NAME = NXManager; SWIFT_VERSION = 5.0; }; name = Release; };
+		A10000000000000000000023 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = macosx; }; name = Debug; };
+		A10000000000000000000024 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = macosx; }; name = Release; };
+		A10000000000000000000019 /* Project config list */ = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000023, A10000000000000000000024,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A10000000000000000000020 /* Target config list */ = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000021, A10000000000000000000022,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+	};
+	rootObject = A10000000000000000000018;
+}

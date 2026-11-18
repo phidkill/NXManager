@@ -1,0 +1,4 @@
+PySide6>=6.7
+# macOS controller detection (install on macOS):
+pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'
+pyobjc-framework-GameController>=10; sys_platform == 'darwin'
