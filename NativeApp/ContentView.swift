@@ -144,52 +144,55 @@ struct ContentView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if !local.consoleMode {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "gamecontroller.fill").font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(.white).frame(width: 38, height: 38)
-                            .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("NXManager").font(.headline)
-                            Text("GAME LIBRARY").font(.system(size: 9, weight: .bold)).tracking(1.1).foregroundStyle(.secondary)
+        GeometryReader { geometry in
+            HStack(alignment: .top, spacing: 0) {
+                if !local.consoleMode {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "gamecontroller.fill").font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(.white).frame(width: 38, height: 38)
+                                .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("NXManager").font(.headline)
+                                Text("GAME LIBRARY").font(.system(size: 9, weight: .bold)).tracking(1.1).foregroundStyle(.secondary)
+                            }
+                        }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 14)
+                        VStack(spacing: 6) {
+                            sidebarRow("Games", icon: "square.grid.2x2.fill", section: .library)
+                            sidebarRow("Import", icon: "square.and.arrow.down.fill", section: .importing)
+                            sidebarRow("Controller", icon: "gamecontroller.fill", section: .controller)
+                            sidebarRow("Settings", icon: "gearshape.fill", section: .settings)
                         }
-                    }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 14)
-                    VStack(spacing: 6) {
-                        sidebarRow("Games", icon: "square.grid.2x2.fill", section: .library)
-                        sidebarRow("Import", icon: "square.and.arrow.down.fill", section: .importing)
-                        sidebarRow("Controller", icon: "gamecontroller.fill", section: .controller)
-                        sidebarRow("Settings", icon: "gearshape.fill", section: .settings)
+                        Spacer()
+                        HStack(spacing: 9) {
+                            Circle().fill(model.engineReady ? .green : .orange).frame(width: 8, height: 8)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.engineReady ? "Engine ready" : "Setup needed").font(.caption.weight(.semibold))
+                                Text("NXNative").font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }.padding(.horizontal, 26).padding(.vertical, 18)
                     }
-                    Spacer()
-                    HStack(spacing: 9) {
-                        Circle().fill(model.engineReady ? .green : .orange).frame(width: 8, height: 8)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(model.engineReady ? "Engine ready" : "Setup needed").font(.caption.weight(.semibold))
-                            Text("NXNative").font(.caption2).foregroundStyle(.secondary)
+                    .frame(width: 224, height: geometry.size.height, alignment: .topLeading)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                    .frame(width: sidebarVisible ? 220 : 0, height: geometry.size.height, alignment: .topLeading)
+                    .clipped()
+                }
+                Group {
+                    if local.consoleMode {
+                        consoleLibraryView
+                    } else {
+                        switch model.selectedSection ?? .library {
+                        case .library: libraryView
+                        case .importing: ImportView()
+                        case .controller: ControllerView()
+                        case .settings: SettingsView()
                         }
-                        Spacer(minLength: 0)
-                    }.padding(.horizontal, 26).padding(.vertical, 18)
-                }
-                .frame(width: 224).frame(maxHeight: .infinity)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                .frame(width: sidebarVisible ? 220 : 0)
-                .clipped()
-            }
-            Group {
-                if local.consoleMode {
-                    consoleLibraryView
-                } else {
-                    switch model.selectedSection ?? .library {
-                    case .library: libraryView
-                    case .importing: ImportView()
-                    case .controller: ControllerView()
-                    case .settings: SettingsView()
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
         }
         // Animate the sidebar's width inside the fixed window. NavigationSplitView
         // can resize the native split view itself while restoring its sidebar.

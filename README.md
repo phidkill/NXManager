@@ -14,6 +14,17 @@ Build the native app on an Apple Silicon Mac with Xcode and its command-line too
 
 The result is `dist/NXManager.app`. Open it from Finder. Building games requires NXNative's current dependencies, including Python 3.12+, macOS 26.6 or later, Xcode 27.2, and the tools listed by the upstream project. NXManager does not bundle or install system dependencies. Choose **Settings → Install NXNative** to clone the engine; the app prepares an isolated Python environment and installs NXNative's Python packages when you start the first build. Switch 1 packages need a readable `prod.keys`; Switch 2 `.nup` containers do not. Check the upstream README for current requirements.
 
+### Get the prebuilt app
+
+The repository includes a packaged native build at `dist/NXManager-macOS.zip`. From the repository root, extract it into Downloads:
+
+```bash
+ditto -x -k dist/NXManager-macOS.zip ~/Downloads
+open ~/Downloads/NXManager.app
+```
+
+You can move `NXManager.app` to `/Applications` in Finder. The archive is not notarized; if macOS blocks the first launch, Control-click the app, choose **Open**, then confirm.
+
 The native interface includes controller calibration and retains the latest build status and log for each game, but it does not yet provide the Python edition's multi-build history view. Its library, preferences and engine checkout use the native app's own data store; existing data in the earlier SQLite catalogue is not migrated automatically. The library can look up banner artwork online by Title ID; artwork lookup is optional and requires network access.
 
 ## Earlier Python interface
