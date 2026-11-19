@@ -481,6 +481,13 @@ final class AppModel: ObservableObject {
         saveLibrary()
     }
 
+    func rebuildFromSourceIcon(_ game: Game) {
+        guard let index = games.firstIndex(where: { $0.id == game.id }) else { return }
+        games[index].buildIconPath = nil
+        saveLibrary()
+        build(games[index])
+    }
+
     func setBuildIcon(for gameID: String, from sourceURL: URL) {
         guard ["png", "jpg", "jpeg"].contains(sourceURL.pathExtension.lowercased()),
               let image = NSImage(contentsOf: sourceURL), image.isValid else {

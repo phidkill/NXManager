@@ -2170,12 +2170,19 @@ struct GameDetailView: View {
                     }
                         .buttonStyle(.borderedProminent).disabled(model.buildGameID != nil)
                 } else if current.hasBasePackage && current.buildIconPath != nil {
-                    Button { model.build(current) } label: {
-                        Label(model.buildGameID == current.id
-                              ? (model.buildHasStarted ? "Building…" : "Preparing…")
-                              : "Rebuild with Icon", systemImage: "arrow.clockwise")
+                    HStack {
+                        Button { model.build(current) } label: {
+                            Label(model.buildGameID == current.id
+                                  ? (model.buildHasStarted ? "Building…" : "Preparing…")
+                                  : "Rebuild with Custom Icon", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderedProminent).disabled(model.buildGameID != nil)
+
+                        Button { model.rebuildFromSourceIcon(current) } label: {
+                            Label("Rebuild from Source Icon", systemImage: "arrow.uturn.backward")
+                        }
+                        .buttonStyle(.bordered).disabled(model.buildGameID != nil)
                     }
-                    .buttonStyle(.borderedProminent).disabled(model.buildGameID != nil)
                 } else if current.buildIconPath != nil && !current.hasBasePackage {
                     Text("Import the original game files to rebuild with this icon.")
                         .font(.caption).foregroundStyle(.secondary)
