@@ -506,9 +506,12 @@ struct ContentView: View {
 
     private func gameHero(_ game: Game) -> some View {
         let height: CGFloat = 244
+        let artworkPath = game.bannerPath ?? game.displayCoverPath
         return ZStack {
-            if let path = game.bannerPath, let art = NSImage(contentsOfFile: path) {
+            if let path = artworkPath, let art = NSImage(contentsOfFile: path) {
                 Image(nsImage: art).resizable().scaledToFill()
+                    .blur(radius: game.bannerPath == nil ? 14 : 0)
+                    .scaleEffect(game.bannerPath == nil ? 1.15 : 1)
                     .overlay(LinearGradient(colors: [.black.opacity(0.64), .black.opacity(0.10), .black.opacity(0.26)], startPoint: .leading, endPoint: .trailing))
             } else {
                 ZStack(alignment: .topTrailing) {
@@ -520,7 +523,7 @@ struct ContentView: View {
             LinearGradient(colors: [.black.opacity(0.12), .black.opacity(0.80)], startPoint: .top, endPoint: .bottom)
             HStack {
                 VStack(alignment: .leading, spacing: 11) {
-                    Text(game.bannerPath == nil ? (model.artworkLoadingGameIDs.contains(game.id) ? "LOADING GAME ARTWORK" : "GAME LIBRARY") : (game.allCompiledApps.isEmpty ? "READY TO BUILD" : "READY TO PLAY"))
+                    Text(artworkPath == nil ? (model.artworkLoadingGameIDs.contains(game.id) ? "LOADING GAME ARTWORK" : "GAME LIBRARY") : (game.allCompiledApps.isEmpty ? "READY TO BUILD" : "READY TO PLAY"))
                         .font(.caption.weight(.bold)).tracking(1.4).foregroundStyle(.white.opacity(0.68))
                     Text(game.name).font(.system(size: 31, weight: .bold)).lineLimit(2).foregroundStyle(.white)
                     Text(game.allCompiledApps.isEmpty ? (game.hasBasePackage ? "Your game files are ready to build." : "Add game files to get started.") : "Your game is ready. Pick up where you left off.")
@@ -963,17 +966,32 @@ struct ControllerView: View {
     @State private var selectedHIDControllerID = ""
     @FocusState private var profileNameFocused: Bool
 
-    private var gamesWithTitleID: [Game] { model.games.filter { $0.titleID != nil } }
-    private var selectedGame: Game? { gamesWithTitleID.first { $0.id == selectedGameID } }
+    private var gamesForMapping: [Game] { model.games.filter { $0.titleID != nil || $0.hasBasePackage } }
+    private var selectedGame: Game? { gamesForMapping.first { $0.id == selectedGameID } }
     private var rawControllers: [ControllerListState.DetectedController] { state.devices.filter { !$0.isGameController } }
     private var selectedHIDControllerName: String? { rawControllers.first { $0.id == selectedHIDControllerID }?.name }
 
     private func loadSelection() {
-        guard let titleID = selectedGame?.titleID else { return }
-        state.selectedTitleID = titleID.uppercased()
         state.loadProfiles()
+        guard let game = selectedGame, let titleID = NXTitleID.normalize(game.titleID) else {
+            state.selectedTitleID = nil
+            state.mapping = [:]
+            state.loggingEnabled = false
+            state.recentUsages = []
+            state.mappingStatus = selectedGame?.usesNUPContainer == true
+                ? "Build this Switch 2 game once so NXNative can identify its Title ID. Then you can configure and apply controller profiles for it."
+                : "This game does not have a valid Title ID yet."
+            return
+        }
+        state.selectedTitleID = titleID
         state.loadMapping(titleID: titleID)
         state.refreshLog(titleID: titleID, controllerName: selectedHIDControllerName)
+    }
+
+    private func profileLabel(_ profile: ControllerMappingProfile) -> String {
+        let sourceGame = model.games.first { $0.titleID?.caseInsensitiveCompare(profile.gameTitleID) == .orderedSame }?.name
+            ?? profile.gameTitleID
+        return "\(profile.name) · \(profile.controllerName) · \(sourceGame)"
     }
 
     var body: some View {
@@ -1013,7 +1031,7 @@ struct ControllerView: View {
                 Picker("Profile for Console Mode", selection: $state.consoleMenuProfileID) {
                     Text("Default controller mapping").tag("")
                     ForEach(state.profiles) { profile in
-                        Text("\(profile.name) · \(profile.controllerName)").tag(profile.id)
+                        Text(profileLabel(profile)).tag(profile.id)
                     }
                 }
                 .disabled(state.profiles.isEmpty)
@@ -1036,22 +1054,29 @@ struct ControllerView: View {
                     .onChange(of: selectedHIDControllerID) { _, _ in loadSelection() }
                     
                 }
-                if gamesWithTitleID.isEmpty {
-                    Label("Import a game with a valid title ID before configuring a mapping.", systemImage: "exclamationmark.triangle")
+                if gamesForMapping.isEmpty {
+                    Label("Import a game before configuring a controller mapping.", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 } else {
                     Picker("Game", selection: $selectedGameID) {
-                        ForEach(gamesWithTitleID) { game in Text(game.name).tag(game.id) }
+                        ForEach(gamesForMapping) { game in
+                            Text(game.usesNUPContainer ? "\(game.name) · Switch 2" : game.name).tag(game.id)
+                        }
                     }
                     .onChange(of: selectedGameID) { _, _ in loadSelection() }
+
+                    if selectedGame?.titleID == nil {
+                        Label("Switch 2 NUP games appear here too. Build the game once to reveal its Title ID and enable controller mapping.", systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     
                     TextField("Profile name", text: $state.profileName).textFieldStyle(.roundedBorder)
                         .focused($profileNameFocused)
                         
-                    if !state.profilesForSelectedGame.isEmpty {
-                        Picker("Saved profile", selection: $state.selectedProfileID) {
-                            ForEach(state.profilesForSelectedGame) { profile in
-                                Text("\(profile.name) · \(profile.controllerName)").tag(profile.id)
+                    if !state.profiles.isEmpty {
+                        Picker("Saved controller profile", selection: $state.selectedProfileID) {
+                            ForEach(state.profiles) { profile in
+                                Text(profileLabel(profile)).tag(profile.id)
                             }
                         }
                         
@@ -1059,6 +1084,8 @@ struct ControllerView: View {
                             Button("Apply Saved Profile to Game") {
                                 _ = state.applySavedProfile(id: state.selectedProfileID, titleID: selectedGame?.titleID)
                             }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(selectedGame?.titleID == nil || !state.profiles.contains(where: { $0.id == state.selectedProfileID }))
                             
                             Button("Use This Profile for Console Mode") {
                                 state.applyProfileToConsoleMenu(id: state.selectedProfileID)
@@ -1066,6 +1093,9 @@ struct ControllerView: View {
                             .disabled(!state.profiles.contains(where: { $0.id == state.selectedProfileID }))
                             
                         }
+                    } else {
+                        Text("Saved profiles from every game will appear here, so you can reuse one on this game.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
 
                     if state.calibrationRunning, let step = state.currentCalibrationStep {
@@ -1102,7 +1132,7 @@ struct ControllerView: View {
                                     controllerID: selectedHIDControllerID)
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(state.profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(state.profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedGame?.titleID == nil)
                             
                         }
                     } else {
@@ -1111,7 +1141,7 @@ struct ControllerView: View {
                             state.startCalibration(controller: controller)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(selectedHIDControllerID.isEmpty)
+                        .disabled(selectedHIDControllerID.isEmpty || selectedGame?.titleID == nil)
                         
                     }
                     Text(state.mappingStatus).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -1125,7 +1155,9 @@ struct ControllerView: View {
         .onAppear {
             state.refresh()
             state.loadProfiles()
-            if selectedGameID.isEmpty { selectedGameID = gamesWithTitleID.first?.id ?? "" }
+            if selectedGameID.isEmpty || !gamesForMapping.contains(where: { $0.id == selectedGameID }) {
+                selectedGameID = gamesForMapping.first?.id ?? ""
+            }
             if selectedHIDControllerID.isEmpty { selectedHIDControllerID = rawControllers.first?.id ?? "" }
             loadSelection()
         }
@@ -1135,6 +1167,7 @@ struct ControllerView: View {
             }
             loadSelection()
         }
+        .onChange(of: model.games) { _, _ in loadSelection() }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             state.refresh(discoverWireless: false)
             state.refreshLog(titleID: selectedGame?.titleID, controllerName: selectedHIDControllerName)
@@ -1194,9 +1227,6 @@ struct ControllerView: View {
         return ControllerCalibrationStep.all[calibrationStepIndex]
     }
     var currentStepSupported: Bool? { currentCalibrationStep.flatMap { compatibility[$0.id] } }
-    var profilesForSelectedGame: [ControllerMappingProfile] {
-        profiles.filter { $0.gameTitleID == selectedTitleID }
-    }
     var selectedTitleID: String?
     var supportedInputCount: Int { compatibility.values.filter { $0 }.count }
     var unsupportedInputCount: Int { compatibility.values.filter { !$0 }.count }
@@ -1338,8 +1368,8 @@ struct ControllerView: View {
         if !consoleMenuProfileID.isEmpty && !profiles.contains(where: { $0.id == consoleMenuProfileID }) {
             consoleMenuProfileID = ""
         }
-        if !profilesForSelectedGame.contains(where: { $0.id == selectedProfileID }) {
-            selectedProfileID = profilesForSelectedGame.first?.id ?? ""
+        if !profiles.contains(where: { $0.id == selectedProfileID }) {
+            selectedProfileID = profiles.first?.id ?? ""
         }
     }
 
