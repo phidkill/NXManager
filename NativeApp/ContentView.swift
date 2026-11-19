@@ -964,10 +964,12 @@ struct ControllerView: View {
     @StateObject private var state = ControllerListState()
     @State private var selectedGameID = ""
     @State private var selectedHIDControllerID = ""
+    @State private var profilePendingDeletion: ControllerMappingProfile?
     @FocusState private var profileNameFocused: Bool
 
     private var gamesForMapping: [Game] { model.games.filter { $0.titleID != nil || $0.hasBasePackage } }
     private var selectedGame: Game? { gamesForMapping.first { $0.id == selectedGameID } }
+    private var selectedGameTitleID: String? { NXTitleID.normalize(selectedGame?.titleID) }
     private var rawControllers: [ControllerListState.DetectedController] { state.devices.filter { !$0.isGameController } }
     private var selectedHIDControllerName: String? { rawControllers.first { $0.id == selectedHIDControllerID }?.name }
 
@@ -988,10 +990,13 @@ struct ControllerView: View {
         state.refreshLog(titleID: titleID, controllerName: selectedHIDControllerName)
     }
 
-    private func profileLabel(_ profile: ControllerMappingProfile) -> String {
-        let sourceGame = model.games.first { $0.titleID?.caseInsensitiveCompare(profile.gameTitleID) == .orderedSame }?.name
+    private func profileSourceGameName(_ profile: ControllerMappingProfile) -> String {
+        model.games.first { $0.titleID?.caseInsensitiveCompare(profile.gameTitleID) == .orderedSame }?.name
             ?? profile.gameTitleID
-        return "\(profile.name) · \(profile.controllerName) · \(sourceGame)"
+    }
+
+    private func profileLabel(_ profile: ControllerMappingProfile) -> String {
+        "\(profile.name) · \(profile.controllerName) · \(profileSourceGameName(profile))"
     }
 
     var body: some View {
@@ -1041,63 +1046,70 @@ struct ControllerView: View {
                      : "The selected raw-HID profile’s A assignment confirms and B assignment goes back in Console Mode. Its per-game mapping remains unchanged.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("NXNative HID Mapping") {
-                Text("Calibrate every button, D-pad direction, trigger, stick click and stick direction in sequence. NXNative applies button mappings from the selected game’s env.txt.")
+            Section("Apply a Saved Profile") {
+                Text("Choose the game to configure, then apply any saved raw-HID profile. Applying copies its button map to that game’s NXNative env.txt.")
                     .font(.callout).foregroundStyle(.secondary)
-                if rawControllers.isEmpty {
-                    Label("Connect a raw HID controller to calibrate it. macOS GameController devices use Apple’s native mapping and cannot be remapped here.", systemImage: "info.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Picker("Raw HID controller", selection: $selectedHIDControllerID) {
-                        ForEach(rawControllers) { controller in Text(controller.name).tag(controller.id) }
-                    }
-                    .onChange(of: selectedHIDControllerID) { _, _ in loadSelection() }
-                    
-                }
                 if gamesForMapping.isEmpty {
                     Label("Import a game before configuring a controller mapping.", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                 } else {
-                    Picker("Game", selection: $selectedGameID) {
+                    Picker("Game to configure", selection: $selectedGameID) {
                         ForEach(gamesForMapping) { game in
                             Text(game.usesNUPContainer ? "\(game.name) · Switch 2" : game.name).tag(game.id)
                         }
                     }
                     .onChange(of: selectedGameID) { _, _ in loadSelection() }
 
-                    if selectedGame?.titleID == nil {
-                        Label("Switch 2 NUP games appear here too. Build the game once to reveal its Title ID and enable controller mapping.", systemImage: "info.circle")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    
-                    TextField("Profile name", text: $state.profileName).textFieldStyle(.roundedBorder)
-                        .focused($profileNameFocused)
-                        
-                    if !state.profiles.isEmpty {
-                        Picker("Saved controller profile", selection: $state.selectedProfileID) {
-                            ForEach(state.profiles) { profile in
-                                Text(profileLabel(profile)).tag(profile.id)
-                            }
-                        }
-                        
-                        HStack {
-                            Button("Apply Saved Profile to Game") {
-                                _ = state.applySavedProfile(id: state.selectedProfileID, titleID: selectedGame?.titleID)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(selectedGame?.titleID == nil || !state.profiles.contains(where: { $0.id == state.selectedProfileID }))
-                            
-                            Button("Use This Profile for Console Mode") {
-                                state.applyProfileToConsoleMenu(id: state.selectedProfileID)
-                            }
-                            .disabled(!state.profiles.contains(where: { $0.id == state.selectedProfileID }))
-                            
-                        }
-                    } else {
-                        Text("Saved profiles from every game will appear here, so you can reuse one on this game.")
+                    if selectedGameTitleID == nil {
+                        Label("Build this Switch 2 game once to let NXNative reveal its Title ID. Then its per-game mapping file can be written.", systemImage: "info.circle")
                             .font(.caption).foregroundStyle(.secondary)
                     }
 
+                    if state.profiles.isEmpty {
+                        ContentUnavailableView("No Saved Profiles", systemImage: "gamecontroller", description: Text("Create one below by calibrating a connected raw-HID controller."))
+                    } else {
+                        ForEach(state.profiles) { profile in
+                            HStack(spacing: 12) {
+                                Image(systemName: "gamecontroller.fill").foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(profile.name).font(.headline)
+                                    Text("\(profile.controllerName) · Source: \(profileSourceGameName(profile))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                Button("Apply to Game") {
+                                    _ = state.applySavedProfile(id: profile.id, titleID: selectedGameTitleID)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(selectedGameTitleID == nil)
+                                Button(role: .destructive) { profilePendingDeletion = profile } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Delete this saved profile")
+                            }
+                        }
+                    }
+                    Text(state.mappingStatus).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
+            Section("Create a Controller Profile") {
+                Text("A profile stores this controller’s button map. Saving also applies it to the selected game; you can reuse it on other games above.")
+                    .font(.callout).foregroundStyle(.secondary)
+                if rawControllers.isEmpty {
+                    Label("Connect a raw HID controller to create a profile. macOS GameController devices use Apple’s native mapping and cannot be remapped here.", systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Picker("Controller to calibrate", selection: $selectedHIDControllerID) {
+                        ForEach(rawControllers) { controller in Text(controller.name).tag(controller.id) }
+                    }
+                    .onChange(of: selectedHIDControllerID) { _, _ in loadSelection() }
+                    TextField("Profile name", text: $state.profileName).textFieldStyle(.roundedBorder)
+                        .focused($profileNameFocused)
+                    if selectedGameTitleID == nil {
+                        Label("Select a game with a known Title ID. For Switch 2 NUP games, build once first.", systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if state.calibrationRunning, let step = state.currentCalibrationStep {
                         VStack(alignment: .leading, spacing: 12) {
                             ProgressView(value: Double(state.calibrationStepIndex), total: Double(ControllerCalibrationStep.all.count))
@@ -1111,7 +1123,6 @@ struct ControllerView: View {
                                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                 Spacer()
                                 Button("Cancel Calibration", role: .cancel) { state.cancelCalibration() }
-                                    
                             }
                         }
                         .padding(14)
@@ -1125,26 +1136,22 @@ struct ControllerView: View {
                         }
                         HStack {
                             Button("Start Again") { state.resetCalibration() }
-                                
-                            Button("Save Profile & Apply to Game") {
-                                _ = state.saveCalibrationProfile(titleID: selectedGame?.titleID,
+                            Button("Save & Apply to Selected Game") {
+                                _ = state.saveCalibrationProfile(titleID: selectedGameTitleID,
                                     controllerName: selectedHIDControllerName ?? "Raw HID Controller",
                                     controllerID: selectedHIDControllerID)
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(state.profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedGame?.titleID == nil)
-                            
+                            .disabled(state.profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || selectedGameTitleID == nil)
                         }
                     } else {
-                        Button("Start Controller Setup") {
+                        Button("Start Calibration") {
                             guard let controller = rawControllers.first(where: { $0.id == selectedHIDControllerID }) else { return }
                             state.startCalibration(controller: controller)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(selectedHIDControllerID.isEmpty || selectedGame?.titleID == nil)
-                        
+                        .disabled(selectedHIDControllerID.isEmpty || selectedGameTitleID == nil)
                     }
-                    Text(state.mappingStatus).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
         }
@@ -1175,6 +1182,18 @@ struct ControllerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidConnect)) { _ in state.refresh(discoverWireless: false) }
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidDisconnect)) { _ in state.refresh(discoverWireless: false) }
         .onDisappear { state.cancelCalibration() }
+        .confirmationDialog("Delete saved controller profile?", isPresented: Binding(
+            get: { profilePendingDeletion != nil },
+            set: { if !$0 { profilePendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete Profile", role: .destructive) {
+                if let profilePendingDeletion { state.deleteProfile(id: profilePendingDeletion.id) }
+                profilePendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { profilePendingDeletion = nil }
+        } message: {
+            Text("This removes the saved profile. Existing game mappings already written to NXNative will not change.")
+        }
     }
 
     private static func nextValue(in values: [String], after current: String) -> String {
@@ -1370,6 +1389,17 @@ struct ControllerView: View {
         }
         if !profiles.contains(where: { $0.id == selectedProfileID }) {
             selectedProfileID = profiles.first?.id ?? ""
+        }
+    }
+
+    func deleteProfile(id: String) {
+        do {
+            profiles = try ControllerProfileStore.delete(id: id, from: profileURL)
+            if selectedProfileID == id { selectedProfileID = profiles.first?.id ?? "" }
+            if consoleMenuProfileID == id { consoleMenuProfileID = "" }
+            mappingStatus = "Saved controller profile deleted. Existing per-game mappings were left unchanged."
+        } catch {
+            mappingStatus = "The controller profile could not be deleted: \(error.localizedDescription)"
         }
     }
 
@@ -2182,6 +2212,7 @@ struct GameDetailView: View {
                             Label("Rebuild from Source Icon", systemImage: "arrow.uturn.backward")
                         }
                         .buttonStyle(.bordered).disabled(model.buildGameID != nil)
+                        .help("Use the NUP’s own icon when available. If it has none, use matching online artwork as NXNative’s fallback.")
                     }
                 } else if current.buildIconPath != nil && !current.hasBasePackage {
                     Text("Import the original game files to rebuild with this icon.")

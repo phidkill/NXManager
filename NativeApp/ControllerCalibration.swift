@@ -83,6 +83,15 @@ enum ControllerProfileStore {
         try encoder.encode(profiles).write(to: url, options: .atomic)
         return profiles
     }
+
+    static func delete(id: String, from url: URL) throws -> [ControllerMappingProfile] {
+        let profiles = load(from: url).filter { $0.id != id }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(profiles).write(to: url, options: .atomic)
+        return profiles
+    }
 }
 
 final class RawHIDControllerCapture {

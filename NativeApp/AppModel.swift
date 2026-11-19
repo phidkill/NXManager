@@ -33,6 +33,9 @@ final class AppModel: ObservableObject {
     @Published var pythonReady = false
     @Published var artworkLoadingGameIDs: Set<String> = []
     @Published var artworkMessages: [String: String] = [:]
+    private var artworkLookupCompletions: [String: [(Bool) -> Void]] = [:]
+    private var sourceIconFallbackPending: Set<String> = []
+    private var buildProducedGameIcon = false
 
     private let defaults = UserDefaults.standard
     private let support = FileManager.default.homeDirectoryForCurrentUser
@@ -56,17 +59,24 @@ final class AppModel: ObservableObject {
     var validKeys: Bool { FileManager.default.isReadableFile(atPath: (keysPath as NSString).expandingTildeInPath) }
     var engineReady: Bool { FileManager.default.fileExists(atPath: URL(fileURLWithPath: (enginePath as NSString).expandingTildeInPath).appendingPathComponent("scripts/build_ipa_from_nsp.py").path) }
 
-    func ensureBannerArtwork(for gameID: String, forceLookup: Bool = false) {
+    func ensureBannerArtwork(for gameID: String, forceLookup: Bool = false, completion: ((Bool) -> Void)? = nil) {
         guard let game = games.first(where: { $0.id == gameID }),
-              let titleID = NXTitleID.normalize(game.titleID),
-              !artworkLoadingGameIDs.contains(gameID) else { return }
+              let titleID = NXTitleID.normalize(game.titleID) else {
+            completion?(false)
+            return
+        }
         let hasBanner = game.bannerPath.map { FileManager.default.fileExists(atPath: $0) } == true
         let hasCover = game.apiCoverPath.map { FileManager.default.fileExists(atPath: $0) } == true
-        guard forceLookup || !hasBanner || !hasCover else { return }
+        guard forceLookup || !hasBanner || !hasCover else {
+            completion?(true)
+            return
+        }
+        if let completion { artworkLookupCompletions[gameID, default: []].append(completion) }
+        guard !artworkLoadingGameIDs.contains(gameID) else { return }
         artworkLoadingGameIDs.insert(gameID)
         artworkMessages[gameID] = "Searching online artwork…"
         Task {
-            defer { artworkLoadingGameIDs.remove(gameID) }
+            defer { finishArtworkLookup(for: gameID) }
             do {
                 let artworkDirectory = support.appendingPathComponent("Data/Artwork", isDirectory: true)
                 try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
@@ -134,6 +144,15 @@ final class AppModel: ObservableObject {
                 artworkMessages[gameID] = "Online artwork lookup failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func finishArtworkLookup(for gameID: String) {
+        artworkLoadingGameIDs.remove(gameID)
+        let game = games.first { $0.id == gameID }
+        let hasCover = game?.apiCoverPath.map { FileManager.default.fileExists(atPath: $0) } == true
+        let hasBanner = game?.bannerPath.map { FileManager.default.fileExists(atPath: $0) } == true
+        let completions = artworkLookupCompletions.removeValue(forKey: gameID) ?? []
+        completions.forEach { $0(hasCover || hasBanner) }
     }
 
     private func updateArtwork(gameID: String, coverPath: String?, bannerPath: String?) {
@@ -485,7 +504,24 @@ final class AppModel: ObservableObject {
         guard let index = games.firstIndex(where: { $0.id == game.id }) else { return }
         games[index].buildIconPath = nil
         saveLibrary()
-        build(games[index])
+        let refreshedGame = games[index]
+        guard refreshedGame.usesNUPContainer else {
+            build(refreshedGame)
+            return
+        }
+        sourceIconFallbackPending.insert(game.id)
+        guard NXTitleID.normalize(refreshedGame.titleID) != nil else {
+            build(refreshedGame)
+            return
+        }
+        ensureBannerArtwork(for: game.id) { [weak self] artworkFound in
+            guard let self, let latestGame = self.games.first(where: { $0.id == game.id }) else { return }
+            if !artworkFound {
+                self.sourceIconFallbackPending.remove(game.id)
+                self.alertMessage = "This NUP has no built-in icon and no online artwork was found. The rebuild will use NXNative’s blank icon; choose a custom app icon if you want one."
+            }
+            self.build(latestGame)
+        }
     }
 
     func setBuildIcon(for gameID: String, from sourceURL: URL) {
@@ -674,11 +710,11 @@ final class AppModel: ObservableObject {
     }
 
     func build(_ game: Game) {
-        guard buildGameID == nil else { return }
-        guard game.hasBasePackage else { alertMessage = "Add the base game package before starting a build."; return }
-        guard game.usesNUPContainer || validKeys else { alertMessage = "Choose a readable prod.keys file in Settings."; selectedSection = .settings; return }
+        guard buildGameID == nil else { sourceIconFallbackPending.remove(game.id); return }
+        guard game.hasBasePackage else { sourceIconFallbackPending.remove(game.id); alertMessage = "Add the base game package before starting a build."; return }
+        guard game.usesNUPContainer || validKeys else { sourceIconFallbackPending.remove(game.id); alertMessage = "Choose a readable prod.keys file in Settings."; selectedSection = .settings; return }
         let script = URL(fileURLWithPath: (enginePath as NSString).expandingTildeInPath).appendingPathComponent("scripts/build_ipa_from_nsp.py")
-        guard FileManager.default.fileExists(atPath: script.path) else { alertMessage = "Install NXNative in Settings before building."; selectedSection = .settings; return }
+        guard FileManager.default.fileExists(atPath: script.path) else { sourceIconFallbackPending.remove(game.id); alertMessage = "Install NXNative in Settings before building."; selectedSection = .settings; return }
 
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
@@ -729,6 +765,7 @@ final class AppModel: ObservableObject {
                     buildHasStarted = false
                     buildMessage = message
                     buildLog.append(message)
+                    sourceIconFallbackPending.remove(game.id)
                     if let index = games.firstIndex(where: { $0.id == game.id }) {
                         games[index].lastBuildStatus = "cancelled"
                         games[index].lastBuildMessage = message
@@ -781,11 +818,17 @@ final class AppModel: ObservableObject {
         try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         buildMessage = "Starting build…"
         buildLog = []
+        buildProducedGameIcon = false
         var args = [script.path, packageDirectory.path]
         if !game.usesNUPContainer { args += ["-k", (keysPath as NSString).expandingTildeInPath] }
         if let iconPath = game.buildIconPath,
            FileManager.default.isReadableFile(atPath: iconPath) {
             args += ["--icon", iconPath]
+        }
+        if game.usesNUPContainer,
+           let fallbackIcon = [game.apiCoverPath, game.bannerPath].compactMap({ $0 })
+            .first(where: { FileManager.default.isReadableFile(atPath: $0) }) {
+            args += ["--fallback-icon", fallbackIcon]
         }
         args += ["--platform", "mac-app", "--progress", "json", "--work-dir", workDirectory.path, "-o", output.path]
         do {
@@ -841,6 +884,10 @@ final class AppModel: ObservableObject {
                         self.games[index].lastBuildMessage = result.message
                         self.games[index].lastBuildLog = Array(self.buildLog.suffix(160))
                     }
+                    let shouldRetryNUPWithArtwork = result.status == "success"
+                        && game.usesNUPContainer
+                        && self.sourceIconFallbackPending.contains(game.id)
+                        && !self.buildProducedGameIcon
                     self.buildMessage = result.message
                     self.buildLog.append(result.message)
                     if let index = self.games.firstIndex(where: { $0.id == game.id }) {
@@ -851,7 +898,22 @@ final class AppModel: ObservableObject {
                     self.process = nil
                     self.saveLibrary()
                     if result.status == "success" {
-                        self.ensureBannerArtwork(for: game.id)
+                        if shouldRetryNUPWithArtwork {
+                            self.ensureBannerArtwork(for: game.id) { [weak self] artworkFound in
+                                guard let self else { return }
+                                self.sourceIconFallbackPending.remove(game.id)
+                                guard artworkFound, let latestGame = self.games.first(where: { $0.id == game.id }) else {
+                                    self.alertMessage = "The NUP contains no icon and no matching online artwork was found. Use a custom icon if you do not want a blank app icon."
+                                    return
+                                }
+                                self.build(latestGame)
+                            }
+                        } else {
+                            self.sourceIconFallbackPending.remove(game.id)
+                            self.ensureBannerArtwork(for: game.id)
+                        }
+                    } else {
+                        self.sourceIconFallbackPending.remove(game.id)
                     }
                 }
             }
@@ -867,6 +929,7 @@ final class AppModel: ObservableObject {
         } catch {
             buildGameID = nil
             buildHasStarted = false
+            sourceIconFallbackPending.remove(game.id)
             markBuildUnavailable(game, reason: "Could not start NXNative: \(error.localizedDescription)")
         }
     }
@@ -918,6 +981,7 @@ final class AppModel: ObservableObject {
                 if let name = event["name"] as? String { buildMessage = "Preparing \(name)…" }
                 if let iconPath = event["icon"] as? String {
                     let iconURL = URL(fileURLWithPath: (iconPath as NSString).expandingTildeInPath)
+                    if FileManager.default.isReadableFile(atPath: iconURL.path) { buildProducedGameIcon = true }
                     saveBuildIcon(at: iconURL, for: buildGameID)
                 }
             default: break
@@ -973,6 +1037,7 @@ final class AppModel: ObservableObject {
     }
 
     private func markBuildUnavailable(_ game: Game, reason: String) {
+        sourceIconFallbackPending.remove(game.id)
         buildMessage = reason
         buildLog = [reason]
         if let index = games.firstIndex(where: { $0.id == game.id }) {
