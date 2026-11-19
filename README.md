@@ -25,7 +25,15 @@ The native app is written in SwiftUI and has a macOS 14 deployment target. The b
 
 ## First-launch setup and NXNative tools
 
-The current setup wizard checks for Xcode and Python, helps select `prod.keys`, clones NXNative, and can prepare the isolated Python environment and modules needed by the engine. Switch 1 builds require a readable `prod.keys`; Switch 2 NUP builds do not.
+NXNative is a separate project and must be downloaded independently of NXManager. You can clone it yourself:
+
+```bash
+git clone https://github.com/seedds/nxnative.git ~/Games/nxnative
+```
+
+Then open NXManager → **Settings** → **NXNative Engine**, choose the engine folder, and select the cloned `nxnative` repository root—the folder containing `scripts/build_ipa_from_nsp.py`. Alternatively, choose **Install NXNative** in that section to have NXManager clone the separate project into its managed `Application Support/NXManager/Engine/nxnative` folder.
+
+The current setup wizard checks for Xcode and Python, helps select `prod.keys`, and can prepare the isolated Python environment and modules needed by the engine. Switch 1 builds require a readable `prod.keys`; Switch 2 NUP builds do not.
 
 A complete, guided initializer for the full NXNative toolchain is planned. It will cover the required Python runtime, Xcode and Metal toolchain, and supporting tools such as Homebrew, Git, XcodeGen, zstd, glslang, and .NET. The current app does not install Xcode, Metal, Homebrew, or those system tools automatically; install them using the upstream instructions before building games. The exact requirements can change, so check [NXNative's README](https://github.com/seedds/nxnative) before setting up a machine.
 
@@ -52,11 +60,11 @@ Package files stay at their original paths; NXManager keeps links to them. NXNat
 
 ## Artwork and package identification
 
-Choose custom cover art in Game Details, or use the icon from the latest built game app as the cover without rebuilding. App icons are enlarged to fill the same square artwork area as cover images; custom covers keep their full-frame presentation.
+In Game Details, **Choose Custom Library Cover** sets the poster shown in the library, while **Choose Icon for Next Build** changes the icon embedded in the next built app. Resetting the build icon restores the source game icon on the next build. Library artwork uses a consistent poster frame: custom artwork takes priority, followed by artwork found online by Title ID, then any existing source image. Use **Search Online Artwork** to retry a lookup; NXManager saves a returned game icon or banner as the online library cover.
 
 For Switch 1 packages, NXManager reads Title ID and version from common filename markers such as `[0100...][v0]`; NXNative performs the authoritative package analysis during its build. For Switch 2, select a `.nup` file directly or import a folder containing exactly one `.nup` file. NXNative reads the title metadata from the NUP container. After a successful build, NXManager also reads the Title ID from the generated app's `Info.plist` to enable save-folder shortcuts and online artwork lookup.
 
-The library can look up banner artwork online by Title ID. Artwork lookup is optional and requires network access.
+The library can look up cover and banner artwork online by Title ID. Artwork lookup is optional and requires network access; the game must have a known Title ID.
 
 ## Controllers
 

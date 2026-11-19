@@ -145,52 +145,34 @@ struct ContentView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            HStack(alignment: .top, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                HStack(alignment: .top, spacing: 0) {
+                    if !local.consoleMode {
+                        Color.clear.frame(width: sidebarVisible ? 220 : 0, height: geometry.size.height)
+                    }
+                    Group {
+                        if local.consoleMode {
+                            consoleLibraryView
+                        } else {
+                            switch model.selectedSection ?? .library {
+                            case .library: libraryView
+                            case .importing: ImportView()
+                            case .controller: ControllerView()
+                            case .settings: SettingsView()
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+
                 if !local.consoleMode {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "gamecontroller.fill").font(.system(size: 19, weight: .semibold))
-                                .foregroundStyle(.white).frame(width: 38, height: 38)
-                                .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("NXManager").font(.headline)
-                                Text("GAME LIBRARY").font(.system(size: 9, weight: .bold)).tracking(1.1).foregroundStyle(.secondary)
-                            }
-                        }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 14)
-                        VStack(spacing: 6) {
-                            sidebarRow("Games", icon: "square.grid.2x2.fill", section: .library)
-                            sidebarRow("Import", icon: "square.and.arrow.down.fill", section: .importing)
-                            sidebarRow("Controller", icon: "gamecontroller.fill", section: .controller)
-                            sidebarRow("Settings", icon: "gearshape.fill", section: .settings)
-                        }
-                        Spacer()
-                        HStack(spacing: 9) {
-                            Circle().fill(model.engineReady ? .green : .orange).frame(width: 8, height: 8)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(model.engineReady ? "Engine ready" : "Setup needed").font(.caption.weight(.semibold))
-                                Text("NXNative").font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                        }.padding(.horizontal, 26).padding(.vertical, 18)
-                    }
-                    .frame(width: 224, height: geometry.size.height, alignment: .topLeading)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                    .frame(width: sidebarVisible ? 220 : 0, height: geometry.size.height, alignment: .topLeading)
-                    .clipped()
+                    sidebarContent(height: geometry.size.height)
+                        .frame(width: sidebarVisible ? 220 : 0, height: geometry.size.height, alignment: .topLeading)
+                        .clipped()
+                        .allowsHitTesting(sidebarVisible)
+                        .zIndex(1)
                 }
-                Group {
-                    if local.consoleMode {
-                        consoleLibraryView
-                    } else {
-                        switch model.selectedSection ?? .library {
-                        case .library: libraryView
-                        case .importing: ImportView()
-                        case .controller: ControllerView()
-                        case .settings: SettingsView()
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
         }
@@ -320,6 +302,37 @@ struct ContentView: View {
             .contentShape(RoundedRectangle(cornerRadius: 11))
         }
         .buttonStyle(.plain).padding(.horizontal, 10)
+    }
+
+    private func sidebarContent(height: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "gamecontroller.fill").font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white).frame(width: 38, height: 38)
+                    .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("NXManager").font(.headline)
+                    Text("GAME LIBRARY").font(.system(size: 9, weight: .bold)).tracking(1.1).foregroundStyle(.secondary)
+                }
+            }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 14)
+            VStack(spacing: 6) {
+                sidebarRow("Games", icon: "square.grid.2x2.fill", section: .library)
+                sidebarRow("Import", icon: "square.and.arrow.down.fill", section: .importing)
+                sidebarRow("Controller", icon: "gamecontroller.fill", section: .controller)
+                sidebarRow("Settings", icon: "gearshape.fill", section: .settings)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 9) {
+                Circle().fill(model.engineReady ? .green : .orange).frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.engineReady ? "Engine ready" : "Setup needed").font(.caption.weight(.semibold))
+                    Text("NXNative").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }.padding(.horizontal, 26).padding(.vertical, 18)
+        }
+        .frame(width: 224, height: height, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
     }
 
     private var consoleLibraryView: some View {
@@ -596,7 +609,7 @@ private struct GamePoster: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             ZStack(alignment: .bottomLeading) {
-                if let path = game.coverPath, let image = NSImage(contentsOfFile: path) {
+                if let path = game.displayCoverPath, let image = NSImage(contentsOfFile: path) {
                     CoverArtwork(image: image, sourcePath: path, size: posterSize)
                 } else {
                     LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -1931,7 +1944,7 @@ private struct GameLibraryTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 7) {
                 ZStack(alignment: .topTrailing) {
-                    if let path = game.coverPath, let image = NSImage(contentsOfFile: path) {
+                    if let path = game.displayCoverPath, let image = NSImage(contentsOfFile: path) {
                         CoverArtwork(image: image, sourcePath: path, size: size)
                     } else {
                         ZStack {
@@ -2018,22 +2031,46 @@ struct GameDetailView: View {
                         Text(message).font(.callout).foregroundStyle(current.lastBuildStatus == "failed" ? Color.red : Color.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Button { choosePoster() } label: { Label("Choose Cover Art…", systemImage: "photo") }
+                    Button { choosePoster() } label: { Label("Choose Custom Library Cover…", systemImage: "photo") }
                         .buttonStyle(.borderless)
-                    if !current.allCompiledApps.isEmpty {
-                        Button { model.useBuiltAppIconAsCover(for: current.id) } label: {
-                            Label("Use Built App Icon as Cover", systemImage: "app.dashed")
+                    Text("Changes the library poster only. It does not change the built app’s icon.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if current.apiCoverPath != nil {
+                        Button { model.useOnlineCoverAsCover(for: current.id) } label: {
+                            Label("Use Online Game Cover", systemImage: "globe")
                         }
                         .buttonStyle(.borderless)
-                        .help("Reuse the icon from the latest built app; no rebuild is needed.")
+                    }
+                    if current.titleID != nil {
+                        Button {
+                            model.ensureBannerArtwork(for: current.id, forceLookup: true)
+                        } label: {
+                            Label(model.artworkLoadingGameIDs.contains(current.id) ? "Searching Online…" : "Search Online Artwork", systemImage: "magnifyingglass")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(model.artworkLoadingGameIDs.contains(current.id))
+                    } else {
+                        Text("Online artwork lookup becomes available after NXNative reads the game’s Title ID.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let artworkMessage = model.artworkMessages[current.id] {
+                        Text(artworkMessage).font(.caption).foregroundStyle(.secondary)
                     }
                     Button { chooseBuildIcon() } label: {
-                        Label(current.buildIconPath == nil ? "Choose App Icon…" : "Change App Icon…", systemImage: "app.dashed")
+                        Label(current.buildIconPath == nil ? "Choose Icon for Next Build…" : "Change Icon for Next Build…", systemImage: "app.dashed")
                     }
                     .buttonStyle(.borderless)
                     if current.buildIconPath != nil {
-                        Label("Custom icon will be used on the next build.", systemImage: "checkmark.circle.fill")
-                            .font(.caption).foregroundStyle(.green)
+                        HStack(spacing: 8) {
+                            Label("Custom icon is set for the next build.", systemImage: "checkmark.circle.fill")
+                                .font(.caption).foregroundStyle(.green)
+                            Button("Reset to Source Icon") { model.resetBuildIcon(for: current.id) }
+                                .buttonStyle(.borderless)
+                                .help("Clear the custom icon so the next build uses the icon from the game files.")
+                        }
+                    } else {
+                        Text("The next build uses the icon provided by the source game files.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                         
                     Divider()

@@ -3,6 +3,11 @@ import Combine
 import Darwin
 import Foundation
 
+private struct TitleDBArtwork: Codable {
+    var bannerURL: String?
+    var iconURL: String?
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var games: [Game] = []
@@ -27,6 +32,7 @@ final class AppModel: ObservableObject {
     @Published var pythonMessage = "Not checked"
     @Published var pythonReady = false
     @Published var artworkLoadingGameIDs: Set<String> = []
+    @Published var artworkMessages: [String: String] = [:]
 
     private let defaults = UserDefaults.standard
     private let support = FileManager.default.homeDirectoryForCurrentUser
@@ -50,70 +56,130 @@ final class AppModel: ObservableObject {
     var validKeys: Bool { FileManager.default.isReadableFile(atPath: (keysPath as NSString).expandingTildeInPath) }
     var engineReady: Bool { FileManager.default.fileExists(atPath: URL(fileURLWithPath: (enginePath as NSString).expandingTildeInPath).appendingPathComponent("scripts/build_ipa_from_nsp.py").path) }
 
-    func ensureBannerArtwork(for gameID: String) {
-        guard let game = games.first(where: { $0.id == gameID }), let titleID = game.titleID,
-              game.bannerPath.map({ FileManager.default.fileExists(atPath: $0) }) != true,
+    func ensureBannerArtwork(for gameID: String, forceLookup: Bool = false) {
+        guard let game = games.first(where: { $0.id == gameID }),
+              let titleID = NXTitleID.normalize(game.titleID),
               !artworkLoadingGameIDs.contains(gameID) else { return }
+        let hasBanner = game.bannerPath.map { FileManager.default.fileExists(atPath: $0) } == true
+        let hasCover = game.apiCoverPath.map { FileManager.default.fileExists(atPath: $0) } == true
+        guard forceLookup || !hasBanner || !hasCover else { return }
         artworkLoadingGameIDs.insert(gameID)
+        artworkMessages[gameID] = "Searching online artwork…"
         Task {
             defer { artworkLoadingGameIDs.remove(gameID) }
             do {
                 let artworkDirectory = support.appendingPathComponent("Data/Artwork", isDirectory: true)
                 try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
-                let bannerFile = artworkDirectory.appendingPathComponent("\(titleID.uppercased())-banner.jpg")
-                if FileManager.default.fileExists(atPath: bannerFile.path) {
-                    updateBannerPath(gameID: gameID, path: bannerFile.path)
+                let coverFile = artworkDirectory.appendingPathComponent("\(titleID)-cover.jpg")
+                let bannerFile = artworkDirectory.appendingPathComponent("\(titleID)-banner.jpg")
+                if !forceLookup, FileManager.default.fileExists(atPath: coverFile.path),
+                   FileManager.default.fileExists(atPath: bannerFile.path) {
+                    updateArtwork(gameID: gameID, coverPath: coverFile.path, bannerPath: bannerFile.path)
+                    artworkMessages[gameID] = "Online cover and banner are ready."
                     return
                 }
-                let indexURL = artworkDirectory.appendingPathComponent("banner-index.json")
-                var index = (try? Data(contentsOf: indexURL)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
-                let key = titleID.uppercased()
+
+                let indexURL = artworkDirectory.appendingPathComponent("artwork-index.json")
+                var index = (try? Data(contentsOf: indexURL))
+                    .flatMap { try? JSONDecoder().decode([String: TitleDBArtwork].self, from: $0) } ?? [:]
+                let key = titleID
+                if forceLookup { index.removeValue(forKey: key) }
                 if index[key] == nil {
-                    setupMessage = "Looking up game artwork…"
                     let databaseURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
-                    let (data, _) = try await URLSession.shared.data(from: databaseURL)
-                    index.merge(Self.bannerIndex(from: data)) { current, _ in current }
-                    if index[key] == nil { index[key] = "" }
+                    let (data, response) = try await URLSession.shared.data(from: databaseURL)
+                    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                        throw NSError(domain: "NXManager", code: 2,
+                                      userInfo: [NSLocalizedDescriptionKey: "The game artwork catalogue could not be downloaded."])
+                    }
+                    for (id, artwork) in Self.artworkIndex(from: data) {
+                        let previous = index[id]
+                        index[id] = TitleDBArtwork(bannerURL: artwork.bannerURL ?? previous?.bannerURL,
+                                                   iconURL: artwork.iconURL ?? previous?.iconURL)
+                    }
                     try JSONEncoder().encode(index).write(to: indexURL, options: .atomic)
                 }
-                guard let address = index[key], !address.isEmpty, let imageURL = URL(string: address) else { return }
-                let (data, response) = try await URLSession.shared.data(from: imageURL)
-                guard (response as? HTTPURLResponse)?.statusCode == 200,
-                      let image = NSImage(data: data), image.size.width > image.size.height else { return }
-                try data.write(to: bannerFile, options: .atomic)
-                updateBannerPath(gameID: gameID, path: bannerFile.path)
+                guard let artwork = index[key], artwork.bannerURL != nil || artwork.iconURL != nil else {
+                    artworkMessages[gameID] = "No online artwork is listed for Title ID \(titleID)."
+                    return
+                }
+
+                var coverPath: String?
+                if forceLookup || !hasCover {
+                    let coverURLs = [artwork.iconURL, artwork.bannerURL].compactMap { $0 }
+                    for address in coverURLs {
+                        if try await Self.downloadArtwork(address, to: coverFile, landscapeOnly: false) {
+                            coverPath = coverFile.path
+                            break
+                        }
+                    }
+                } else {
+                    coverPath = game.apiCoverPath
+                }
+
+                var downloadedBannerPath: String?
+                if forceLookup || !hasBanner, let address = artwork.bannerURL,
+                   try await Self.downloadArtwork(address, to: bannerFile, landscapeOnly: true) {
+                    downloadedBannerPath = bannerFile.path
+                } else {
+                    downloadedBannerPath = game.bannerPath
+                }
+
+                if coverPath != nil || downloadedBannerPath != nil {
+                    updateArtwork(gameID: gameID, coverPath: coverPath, bannerPath: downloadedBannerPath)
+                }
+                artworkMessages[gameID] = coverPath != nil
+                    ? "Online game artwork loaded."
+                    : "No online cover image could be loaded for Title ID \(titleID)."
             } catch {
-                // Missing artwork is non-fatal; the library keeps its existing cover art.
+                artworkMessages[gameID] = "Online artwork lookup failed: \(error.localizedDescription)"
             }
         }
     }
 
-    private func updateBannerPath(gameID: String, path: String) {
+    private func updateArtwork(gameID: String, coverPath: String?, bannerPath: String?) {
         guard let index = games.firstIndex(where: { $0.id == gameID }) else { return }
-        games[index].bannerPath = path
+        if let coverPath { games[index].apiCoverPath = coverPath }
+        if let bannerPath { games[index].bannerPath = bannerPath }
         saveLibrary()
     }
 
-    private static func bannerIndex(from data: Data) -> [String: String] {
+    private static func artworkIndex(from data: Data) -> [String: TitleDBArtwork] {
         guard let root = try? JSONSerialization.jsonObject(with: data) else { return [:] }
-        var result: [String: String] = [:]
-        func visit(_ value: Any) {
-            if let array = value as? [Any] { array.forEach(visit); return }
+        var result: [String: TitleDBArtwork] = [:]
+        func visit(_ value: Any, titleID: String? = nil) {
+            if let array = value as? [Any] { array.forEach { visit($0, titleID: titleID) }; return }
             guard let object = value as? [String: Any] else { return }
-            if let record = object["bannerUrl"] as? String {
-                for key in ["id", "titleID", "titleId"] {
-                    if let id = object[key] as? String { result[id.uppercased()] = record }
+            let banner = (object["bannerUrl"] as? String) ?? (object["bannerURL"] as? String)
+            let icon = (object["iconUrl"] as? String) ?? (object["iconURL"] as? String)
+                ?? (object["coverUrl"] as? String) ?? (object["coverURL"] as? String)
+            let embeddedIDs = ["id", "titleID", "titleId"].compactMap { object[$0] as? String }
+            let identifiers = Set(([titleID].compactMap { $0 } + embeddedIDs).compactMap(NXTitleID.normalize))
+            if banner != nil || icon != nil {
+                for id in identifiers {
+                    let current = result[id]
+                    result[id] = TitleDBArtwork(bannerURL: banner ?? current?.bannerURL,
+                                                iconURL: icon ?? current?.iconURL)
                 }
             }
             for (key, child) in object {
-                if key.range(of: #"^[0-9A-Fa-f]{16}$"#, options: .regularExpression) != nil,
-                   let record = child as? [String: Any], let banner = record["bannerUrl"] as? String {
-                    result[key.uppercased()] = banner
-                } else { visit(child) }
+                visit(child, titleID: NXTitleID.normalize(key) ?? titleID)
             }
         }
         visit(root)
         return result
+    }
+
+    private static func downloadArtwork(_ address: String, to destination: URL, landscapeOnly: Bool) async throws -> Bool {
+        guard let url = URL(string: address) else { return false }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let image = NSImage(data: data), image.isValid else { return false }
+        if landscapeOnly && image.size.width <= image.size.height { return false }
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.92]) else { return false }
+        try jpeg.write(to: destination, options: .atomic)
+        return true
     }
 
     func checkSetupRequirements() {
@@ -398,15 +464,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func useBuiltAppIconAsCover(for gameID: String) {
+    func useOnlineCoverAsCover(for gameID: String) {
         guard let index = games.firstIndex(where: { $0.id == gameID }),
-              let app = games[index].allCompiledApps.first,
-              FileManager.default.fileExists(atPath: app.fileURL.path),
-              let cover = saveAppIcon(at: app.fileURL, identifier: gameID) else {
-            alertMessage = "Build or import the game app before using its icon as cover art."
+              let path = games[index].apiCoverPath,
+              FileManager.default.fileExists(atPath: path) else {
+            alertMessage = "Search for online game artwork first."
             return
         }
-        games[index].coverPath = cover.path
+        games[index].coverPath = nil
+        saveLibrary()
+    }
+
+    func resetBuildIcon(for gameID: String) {
+        guard let index = games.firstIndex(where: { $0.id == gameID }) else { return }
+        games[index].buildIconPath = nil
         saveLibrary()
     }
 
@@ -460,7 +531,7 @@ final class AppModel: ObservableObject {
         let otherGames = games.filter { $0.id != game.id }
         let sharedPackagePaths = Set(otherGames.flatMap(\.packages).map { Self.normalizedPath($0.path) })
         let sharedAppPaths = Set(otherGames.flatMap(\.allCompiledApps).map { Self.normalizedPath($0.path) })
-        let sharedArtworkPaths = Set(otherGames.flatMap { [$0.coverPath, $0.bannerPath].compactMap { $0 } }
+        let sharedArtworkPaths = Set(otherGames.flatMap { [$0.coverPath, $0.apiCoverPath, $0.bannerPath].compactMap { $0 } }
             .map { Self.normalizedPath($0) })
         var targets: [String: URL] = [:]
         var sharedResourceCount = 0
@@ -493,6 +564,9 @@ final class AppModel: ObservableObject {
             addArtwork(URL(fileURLWithPath: coverPath))
         }
         let artworkDirectory = support.appendingPathComponent("Data/Artwork", isDirectory: true)
+        if let apiCoverPath = game.apiCoverPath, Self.isDirectChild(apiCoverPath, of: artworkDirectory) {
+            addArtwork(URL(fileURLWithPath: apiCoverPath))
+        }
         if let bannerPath = game.bannerPath, Self.isDirectChild(bannerPath, of: artworkDirectory) {
             addArtwork(URL(fileURLWithPath: bannerPath))
         }
