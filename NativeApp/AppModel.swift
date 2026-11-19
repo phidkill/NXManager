@@ -442,8 +442,7 @@ final class AppModel: ObservableObject {
         } else {
             let cover = saveAppIcon(at: appURL, identifier: gameID)
             games.append(Game(id: gameID, titleID: titleID, name: displayName, packages: [],
-                              coverPath: cover?.path, builtAppPath: appURL.path,
-                              lastBuildStatus: "success", compiledApps: [compiled]))
+                              coverPath: cover?.path, lastBuildStatus: "success", compiledApps: [compiled]))
         }
         games.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         saveLibrary()
@@ -742,6 +741,17 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // Older libraries did not distinguish apps built by NXManager from
+        // apps imported by the user. A successful build log identifies the
+        // previous managed output without claiming imported apps as ours.
+        if let index = games.firstIndex(where: { $0.id == game.id }),
+           games[index].managedBuildAppPath == nil,
+           games[index].lastBuildStatus == "success",
+           games[index].lastBuildLog != nil,
+           let previousBuild = games[index].builtAppPath {
+            games[index].managedBuildAppPath = previousBuild
+        }
+
         buildGameID = game.id
         buildHasStarted = false
         buildMessage = "Checking NXNative Python dependencies…"
@@ -774,12 +784,52 @@ final class AppModel: ObservableObject {
                     }
                     return
                 }
-                startBuild(game, python: managedPython)
+                startBuild(self.games.first(where: { $0.id == game.id }) ?? game, python: managedPython)
             } catch {
                 buildGameID = nil
                 buildHasStarted = false
                 markBuildUnavailable(game, reason: "Could not prepare NXNative's Python dependencies: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func removePreviousManagedBuild(for game: Game, occupying output: URL) throws {
+        guard let index = games.firstIndex(where: { $0.id == game.id }) else {
+            throw NSError(domain: "NXManager", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "The game is no longer in the library."])
+        }
+        let fileManager = FileManager.default
+        let outputPath = output.standardizedFileURL.path
+        let previousPath = games[index].managedBuildAppPath.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        let outputExists = fileManager.fileExists(atPath: outputPath)
+        if outputExists && previousPath != outputPath {
+            throw NSError(domain: "NXManager", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "An app already exists at \(outputPath) and is not recorded as this game’s previous NXManager build. Move it or choose another output folder."])
+        }
+        if let previousPath, fileManager.fileExists(atPath: previousPath) {
+            let shared = games.enumerated().contains { otherIndex, otherGame in
+                otherIndex != index && otherGame.allCompiledApps.contains {
+                    URL(fileURLWithPath: $0.path).standardizedFileURL.path == previousPath
+                }
+            }
+            guard !shared else {
+                throw NSError(domain: "NXManager", code: 5,
+                              userInfo: [NSLocalizedDescriptionKey: "The previous build is also linked to another game in the library and cannot be replaced safely."])
+            }
+            try fileManager.removeItem(atPath: previousPath)
+        }
+        if let previousPath {
+            games[index].compiledApps.removeAll {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path == previousPath
+            }
+            if games[index].builtAppPath.map({ URL(fileURLWithPath: $0).standardizedFileURL.path }) == previousPath {
+                games[index].builtAppPath = nil
+            }
+        }
+        games[index].managedBuildAppPath = nil
+        guard saveLibrary() else {
+            throw NSError(domain: "NXManager", code: 6,
+                          userInfo: [NSLocalizedDescriptionKey: "NXManager could not save the library after removing the previous build."])
         }
     }
 
@@ -813,9 +863,17 @@ final class AppModel: ObservableObject {
         let workDirectory = support.appendingPathComponent("Data/Builds/\(game.id)")
         let outputDirectory = URL(fileURLWithPath: (outputPath as NSString).expandingTildeInPath, isDirectory: true)
         let appName = game.name.replacingOccurrences(of: "/", with: "-")
-        let output = nextAvailableOutput(from: outputDirectory.appendingPathComponent("\(appName).app"))
-        try? FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let output = outputDirectory.appendingPathComponent("\(appName).app", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            try removePreviousManagedBuild(for: game, occupying: output)
+        } catch {
+            buildGameID = nil
+            buildHasStarted = false
+            markBuildUnavailable(game, reason: "Could not replace the previous NXManager build: \(error.localizedDescription)")
+            return
+        }
         buildMessage = "Starting build…"
         buildLog = []
         buildProducedGameIcon = false
@@ -830,7 +888,7 @@ final class AppModel: ObservableObject {
             .first(where: { FileManager.default.isReadableFile(atPath: $0) }) {
             args += ["--fallback-icon", fallbackIcon]
         }
-        args += ["--platform", "mac-app", "--progress", "json", "--work-dir", workDirectory.path, "-o", output.path]
+        args += ["--app-name", game.name, "--platform", "mac-app", "--progress", "json", "--work-dir", workDirectory.path, "-o", output.path]
         do {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: python)
@@ -864,17 +922,10 @@ final class AppModel: ObservableObject {
                                let titleID = NXTitleID.normalize(bundle.object(forInfoDictionaryKey: "DMTitleID") as? String) {
                                 self.games[index].titleID = titleID
                             }
-                            let previousApps = self.games[index].allCompiledApps.filter { $0.path != output.path }
-                            var appsThatCouldNotBeRemoved: [CompiledApp] = []
-                            for app in previousApps where FileManager.default.fileExists(atPath: app.fileURL.path) {
-                                do { try FileManager.default.removeItem(at: app.fileURL) }
-                                catch {
-                                    appsThatCouldNotBeRemoved.append(app)
-                                    self.buildLog.append("Could not remove old app \(app.fileURL.lastPathComponent): \(error.localizedDescription)")
-                                }
-                            }
+                            let otherApps = self.games[index].allCompiledApps.filter { $0.fileURL.standardizedFileURL != output.standardizedFileURL }
                             self.games[index].builtAppPath = output.path
-                            self.games[index].compiledApps = [CompiledApp(path: output.path)] + appsThatCouldNotBeRemoved
+                            self.games[index].managedBuildAppPath = output.path
+                            self.games[index].compiledApps = [CompiledApp(path: output.path)] + otherApps
                             let cover = workDirectory.appendingPathComponent("icon.jpg")
                             if self.games[index].coverPath == nil, FileManager.default.fileExists(atPath: cover.path) {
                                 self.saveBuildIcon(at: cover, for: game.id)
@@ -1094,17 +1145,6 @@ final class AppModel: ObservableObject {
     private func baseTitleID(_ id: String?) -> String? {
         guard let id, let value = UInt64(id, radix: 16) else { return id }
         return String(format: "%016llX", value >= 0x800 ? value - 0x800 : value)
-    }
-
-    private func nextAvailableOutput(from preferred: URL) -> URL {
-        guard FileManager.default.fileExists(atPath: preferred.path) else { return preferred }
-        var suffix = 2
-        while true {
-            let candidate = preferred.deletingLastPathComponent()
-                .appendingPathComponent("\(preferred.deletingPathExtension().lastPathComponent) (\(suffix)).app")
-            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
-            suffix += 1
-        }
     }
 
     private func saveAppIcon(at appURL: URL, identifier: String) -> URL? {

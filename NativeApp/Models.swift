@@ -37,13 +37,14 @@ struct Game: Identifiable, Codable, Hashable {
     var buildIconPath: String?
     var bannerPath: String?
     var builtAppPath: String?
+    var managedBuildAppPath: String?
     var lastBuildStatus: String?
     var lastBuildMessage: String?
     var lastBuildLog: [String]?
     var compiledApps: [CompiledApp]
 
     init(id: String, titleID: String?, name: String, packages: [GamePackage], coverPath: String? = nil, apiCoverPath: String? = nil, buildIconPath: String? = nil, bannerPath: String? = nil,
-         builtAppPath: String? = nil, lastBuildStatus: String? = nil, lastBuildMessage: String? = nil,
+         builtAppPath: String? = nil, managedBuildAppPath: String? = nil, lastBuildStatus: String? = nil, lastBuildMessage: String? = nil,
          lastBuildLog: [String]? = nil, compiledApps: [CompiledApp] = []) {
         self.id = id
         self.titleID = titleID
@@ -54,6 +55,7 @@ struct Game: Identifiable, Codable, Hashable {
         self.buildIconPath = buildIconPath
         self.bannerPath = bannerPath
         self.builtAppPath = builtAppPath
+        self.managedBuildAppPath = managedBuildAppPath
         self.lastBuildStatus = lastBuildStatus
         self.lastBuildMessage = lastBuildMessage
         self.lastBuildLog = lastBuildLog
@@ -80,7 +82,7 @@ struct Game: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, titleID, name, packages, coverPath, apiCoverPath, buildIconPath, bannerPath, builtAppPath, lastBuildStatus, lastBuildMessage, lastBuildLog, compiledApps
+        case id, titleID, name, packages, coverPath, apiCoverPath, buildIconPath, bannerPath, builtAppPath, managedBuildAppPath, lastBuildStatus, lastBuildMessage, lastBuildLog, compiledApps
     }
 
     init(from decoder: Decoder) throws {
@@ -94,6 +96,7 @@ struct Game: Identifiable, Codable, Hashable {
         buildIconPath = try values.decodeIfPresent(String.self, forKey: .buildIconPath)
         bannerPath = try values.decodeIfPresent(String.self, forKey: .bannerPath)
         builtAppPath = try values.decodeIfPresent(String.self, forKey: .builtAppPath)
+        managedBuildAppPath = try values.decodeIfPresent(String.self, forKey: .managedBuildAppPath)
         lastBuildStatus = try values.decodeIfPresent(String.self, forKey: .lastBuildStatus)
         lastBuildMessage = try values.decodeIfPresent(String.self, forKey: .lastBuildMessage)
         lastBuildLog = try values.decodeIfPresent([String].self, forKey: .lastBuildLog)

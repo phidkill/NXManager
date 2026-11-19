@@ -72,7 +72,7 @@ The native controller setup can calibrate buttons, D-pad directions, and stick a
 
 ## Build flow
 
-NXManager runs NXNative's `scripts/build_ipa_from_nsp.py` with `--platform mac-app`, JSON progress reporting, a per-game work directory, and the selected output path. It passes `-k` for Switch 1 packages and omits it for NUP containers. The app verifies the process exit status and the generated `.app`. If cancellation does not stop the process within five seconds, NXManager force-stops it.
+NXManager runs NXNative's `scripts/build_ipa_from_nsp.py` with `--platform mac-app`, JSON progress reporting, a per-game work directory, and the selected output path. The app bundle filename and home-screen name follow the title set in NXManager. Before rebuilding, NXManager removes the previous app it built for that game and reuses the same title-based filename; separately imported apps are kept. It passes `-k` for Switch 1 packages and omits it for NUP containers. The app verifies the process exit status and the generated `.app`. If cancellation does not stop the process within five seconds, NXManager force-stops it.
 
 When NXNative has no countable progress fraction, the progress bar remains indeterminate. NXManager retains the latest build log for each game; NXNative also maintains its own build logs.
 
