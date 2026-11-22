@@ -973,12 +973,22 @@ final class AppModel: ObservableObject {
     }
 
     func launch(_ game: Game) {
-        guard let app = game.allCompiledApps.first else { return }
+        guard let app = CompiledAppSelection.firstExisting(in: game.allCompiledApps) else {
+            alertMessage = "No built game app could be found for \(game.name). Rebuild the game or add its compiled app again."
+            return
+        }
         launch(app)
     }
 
     func launch(_ app: CompiledApp) {
-        NSWorkspace.shared.open(app.fileURL)
+        guard FileManager.default.fileExists(atPath: app.fileURL.path) else {
+            alertMessage = "The built game app no longer exists at \(app.fileURL.path). Rebuild the game or add its compiled app again."
+            return
+        }
+        guard NSWorkspace.shared.open(app.fileURL) else {
+            alertMessage = "macOS could not open \(app.fileURL.lastPathComponent). Check that it is a valid NXNative app."
+            return
+        }
     }
 
     func openOutputFolder() {

@@ -2,6 +2,86 @@ import AppKit
 import Foundation
 import IOKit.hid
 
+enum ControllerNavigationInput {
+    enum ButtonAction: Equatable { case accept, back }
+
+    /// Returns -2/2 for horizontal movement, -1/1 for vertical movement, and 0 while centered.
+    static func direction(x: Double, y: Double, threshold: Double = 0.55) -> Int {
+        if abs(x) > abs(y), abs(x) >= threshold { return x < 0 ? -2 : 2 }
+        if abs(y) >= threshold { return y > 0 ? -1 : 1 }
+        return 0
+    }
+
+    static func direction(value: Double, logicalMin: Int, logicalMax: Int,
+                           horizontal: Bool, threshold: Double = 0.45) -> Int? {
+        guard logicalMax > logicalMin else { return nil }
+        let normalized = 2 * (value - Double(logicalMin)) / Double(logicalMax - logicalMin) - 1
+        if normalized <= -threshold { return horizontal ? -2 : -1 }
+        if normalized >= threshold { return horizontal ? 2 : 1 }
+        return 0
+    }
+
+    static func buttonAction(usage: Int, acceptUsage: Int = 2, backUsage: Int = 1) -> ButtonAction? {
+        if usage == backUsage { return .back }
+        if usage == acceptUsage { return .accept }
+        // HID drivers disagree about the numbering of the four face buttons.
+        // With the default map, let any remaining face button launch as a fallback.
+        if acceptUsage == 2, backUsage == 1, (1...4).contains(usage) { return .accept }
+        return nil
+    }
+}
+
+struct ControllerNavigationEntry: Equatable {
+    var id: String
+    var order: Int
+    var row: Int
+    var column: Int
+}
+
+enum ControllerNavigationGrid {
+    static func focusedID(currentID: String?, entries: [ControllerNavigationEntry]) -> String? {
+        let ordered = entries.sorted(by: isBefore)
+        return ordered.first(where: { $0.id == currentID })?.id ?? ordered.first?.id
+    }
+
+    static func destination(currentID: String?, direction: Int,
+                            entries: [ControllerNavigationEntry]) -> String? {
+        let ordered = entries.sorted(by: isBefore)
+        guard let current = ordered.first(where: { $0.id == currentID }) ?? ordered.first else { return nil }
+        if abs(direction) == 2 {
+            let column = current.column + (direction > 0 ? 1 : -1)
+            return ordered.first(where: { $0.row == current.row && $0.column == column })?.id ?? current.id
+        }
+        guard abs(direction) == 1 else { return current.id }
+        let row = current.row + direction
+        let candidates = ordered.filter { $0.row == row }
+        return candidates.min(by: { abs($0.column - current.column) < abs($1.column - current.column) })?.id ?? current.id
+    }
+
+    static func sequentialDestination(currentID: String?, direction: Int,
+                                      entries: [ControllerNavigationEntry]) -> String? {
+        let ordered = entries.sorted(by: isBefore)
+        guard !ordered.isEmpty else { return nil }
+        let currentIndex = ordered.firstIndex(where: { $0.id == currentID }) ?? 0
+        let step = direction < 0 ? -1 : direction > 0 ? 1 : 0
+        return ordered[min(max(currentIndex + step, 0), ordered.count - 1)].id
+    }
+
+    @discardableResult
+    static func activate(currentID: String?, entries: [ControllerNavigationEntry],
+                         action: (String) -> Void) -> String? {
+        guard let id = focusedID(currentID: currentID, entries: entries) else { return nil }
+        action(id)
+        return id
+    }
+
+    private static func isBefore(_ lhs: ControllerNavigationEntry, _ rhs: ControllerNavigationEntry) -> Bool {
+        if lhs.row != rhs.row { return lhs.row < rhs.row }
+        if lhs.column != rhs.column { return lhs.column < rhs.column }
+        return lhs.order < rhs.order
+    }
+}
+
 private enum HIDRunLoop {
     static let mode = CFStringCreateWithCString(nil, "kCFRunLoopDefaultMode", CFStringBuiltInEncodings.UTF8.rawValue)!
 }

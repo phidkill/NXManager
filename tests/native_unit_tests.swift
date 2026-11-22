@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @main
@@ -12,14 +13,103 @@ enum NativeUnitTests {
         expect(.notBuilt, last: nil, compiled: false, base: false)
         precondition(GameLibraryStatus(lastBuildStatus: "building", hasCompiledApp: false, hasBasePackage: false).title == "BUILDING")
         precondition(GameLibraryStatus(lastBuildStatus: nil, hasCompiledApp: true, hasBasePackage: false).title == "READY TO PLAY")
+        testCompiledAppSelection()
+        testArtworkSizing()
+        testControllerNavigationInput()
         testHIDConfiguration()
         testControllerProfiles()
-        print("Native unit checks passed, including NXNative HID mapping persistence and log parsing")
+        print("Native unit checks passed, including cover sizing, controller navigation, stale build selection, HID mapping persistence, and log parsing")
     }
 
     private static func expect(_ expected: GameLibraryStatus, last: String?, compiled: Bool, base: Bool) {
         let result = GameLibraryStatus(lastBuildStatus: last, hasCompiledApp: compiled, hasBasePackage: base)
         precondition(result == expected, "Expected \\(expected), got \\(result)")
+    }
+
+    private static func testArtworkSizing() {
+        let canvas = CGSize(width: 300, height: 300)
+        let extractedSquareIcon = ArtworkSizing.aspectFit(source: CGSize(width: 512, height: 512), inside: canvas)
+        let customPortraitPoster = ArtworkSizing.aspectFit(source: CGSize(width: 1200, height: 1800), inside: canvas)
+        let customLandscapePoster = ArtworkSizing.aspectFit(source: CGSize(width: 1800, height: 1200), inside: canvas)
+
+        precondition(extractedSquareIcon == CGSize(width: 300, height: 300))
+        precondition(customPortraitPoster == CGSize(width: 200, height: 300))
+        precondition(customLandscapePoster == CGSize(width: 300, height: 200))
+        for fitted in [extractedSquareIcon, customPortraitPoster, customLandscapePoster] {
+            precondition(fitted.width <= canvas.width && fitted.height <= canvas.height,
+                         "Artwork must stay within the shared cover canvas")
+        }
+        precondition(ArtworkSizing.aspectFit(source: .zero, inside: canvas) == .zero)
+
+        var pixels = [UInt8](repeating: 0, count: 100 * 100 * 4)
+        for y in 10..<90 {
+            for x in 20..<80 {
+                let offset = (y * 100 + x) * 4
+                pixels[offset] = 255
+                pixels[offset + 1] = 255
+                pixels[offset + 2] = 255
+                pixels[offset + 3] = 255
+            }
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let cgImage = CGImage(width: 100, height: 100, bitsPerComponent: 8, bitsPerPixel: 32,
+                              bytesPerRow: 100 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGBitmapInfo.byteOrder32Big.union(
+                                CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)),
+                              provider: provider, decode: nil, shouldInterpolate: false,
+                              intent: .defaultIntent)!
+        let paddedImage = NSImage(cgImage: cgImage, size: CGSize(width: 100, height: 100))
+        let cropped = ArtworkSizing.trimTransparentMargins(in: paddedImage)
+        precondition(cropped.size == CGSize(width: 60, height: 80),
+                     "Transparent margins must be removed so the visible cover art can be enlarged")
+    }
+
+    private static func testCompiledAppSelection() {
+        let stale = CompiledApp(path: "/missing/old-name.app")
+        let current = CompiledApp(path: "/builds/current-name.app")
+        let selected = CompiledAppSelection.firstExisting(in: [stale, current]) { $0 == current.path }
+        precondition(selected == current, "Launching must skip stale build paths and select an existing app")
+        precondition(CompiledAppSelection.firstExisting(in: [stale]) { _ in false } == nil,
+                     "A game with no existing app must not be treated as playable")
+    }
+
+    private static func testControllerNavigationInput() {
+        precondition(ControllerNavigationInput.direction(x: -0.8, y: 0) == -2)
+        precondition(ControllerNavigationInput.direction(x: 0.8, y: 0) == 2)
+        precondition(ControllerNavigationInput.direction(x: 0, y: 0.8) == -1)
+        precondition(ControllerNavigationInput.direction(x: 0, y: -0.8) == 1)
+        precondition(ControllerNavigationInput.direction(x: 0.3, y: -0.2) == 0)
+
+        precondition(ControllerNavigationInput.direction(value: 255, logicalMin: 0, logicalMax: 255,
+                                                          horizontal: true) == 2)
+        precondition(ControllerNavigationInput.direction(value: -32768, logicalMin: -32768, logicalMax: 32767,
+                                                          horizontal: false) == -1)
+        precondition(ControllerNavigationInput.direction(value: 127.5, logicalMin: 0, logicalMax: 255,
+                                                          horizontal: true) == 0)
+        precondition(ControllerNavigationInput.direction(value: 1, logicalMin: 1, logicalMax: 1,
+                                                          horizontal: true) == nil)
+        precondition(ControllerNavigationInput.buttonAction(usage: 2) == .accept)
+        precondition(ControllerNavigationInput.buttonAction(usage: 1) == .back)
+        precondition(ControllerNavigationInput.buttonAction(usage: 3) == .accept)
+        precondition(ControllerNavigationInput.buttonAction(usage: 7) == nil)
+        precondition(ControllerNavigationInput.buttonAction(usage: 3, acceptUsage: 3, backUsage: 4) == .accept)
+
+        let cards = [
+            ControllerNavigationEntry(id: "first", order: 0, row: 0, column: 0),
+            ControllerNavigationEntry(id: "second", order: 1, row: 0, column: 1),
+            ControllerNavigationEntry(id: "third", order: 2, row: 1, column: 0)
+        ]
+        let right = ControllerNavigationInput.direction(x: 0.8, y: 0)
+        let secondCard = ControllerNavigationGrid.destination(currentID: "missing", direction: right, entries: cards)
+        precondition(secondCard == "second",
+                     "Navigation must recover from focus IDs that have not been registered")
+        precondition(ControllerNavigationGrid.destination(currentID: "second", direction: 1, entries: cards) == "third")
+        precondition(ControllerNavigationGrid.focusedID(currentID: "missing", entries: cards) == "first")
+        precondition(ControllerNavigationGrid.sequentialDestination(currentID: "missing", direction: 2, entries: cards) == "second")
+        var activatedCard: String?
+        let activated = ControllerNavigationGrid.activate(currentID: secondCard, entries: cards) { activatedCard = $0 }
+        precondition(activated == "second" && activatedCard == "second",
+                     "The accept action must launch the currently focused game card")
     }
 
     private static func testHIDConfiguration() {

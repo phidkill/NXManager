@@ -27,6 +27,13 @@ struct CompiledApp: Identifiable, Codable, Hashable {
     var name: String { fileURL.deletingPathExtension().lastPathComponent }
 }
 
+enum CompiledAppSelection {
+    static func firstExisting(in apps: [CompiledApp],
+                              fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> CompiledApp? {
+        apps.first { fileExists($0.fileURL.path) }
+    }
+}
+
 struct Game: Identifiable, Codable, Hashable {
     var id: String
     var titleID: String?

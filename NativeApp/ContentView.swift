@@ -32,19 +32,27 @@ import UniformTypeIdentifiers
         let row: Int
         let column: Int
         let action: () -> Void
+
+        var navigationEntry: ControllerNavigationEntry {
+            ControllerNavigationEntry(id: id, order: order, row: row, column: column)
+        }
     }
 
     @Published private(set) var focusedID: String?
     @Published var enabled = false
+    @Published private(set) var registryRevision = 0
     private var items: [String: Item] = [:]
 
     func register(id: String, order: Int, row: Int, column: Int, action: @escaping () -> Void) {
         items[id] = Item(id: id, order: order, row: row, column: column, action: action)
+        registryRevision &+= 1
         if focusedID == nil { focusedID = orderedItems.first?.id }
     }
 
     func unregister(id: String) {
+        guard items[id] != nil else { return }
         items[id] = nil
+        registryRevision &+= 1
         if focusedID == id { focusedID = orderedItems.first?.id }
     }
 
@@ -53,23 +61,16 @@ import UniformTypeIdentifiers
     func isFocused(_ id: String) -> Bool { enabled && focusedID == id && items[id] != nil }
 
     func move(_ delta: Int) {
-        guard let focusedItemID = focusedID, let current = items[focusedItemID] else { return }
-        if abs(delta) == 2 {
-            let targetColumn = current.column + (delta > 0 ? 1 : -1)
-            guard let target = orderedItems.first(where: { $0.row == current.row && $0.column == targetColumn }) else { return }
-            focusedID = target.id
-            return
-        }
-        guard abs(delta) == 1 else { return }
-        let targetRow = current.row + delta
-        let candidates = orderedItems.filter { $0.row == targetRow }
-        guard let target = candidates.min(by: { abs($0.column - current.column) < abs($1.column - current.column) }) else { return }
-        focusedID = target.id
+        focusedID = ControllerNavigationGrid.destination(currentID: focusedID, direction: delta,
+                                                         entries: orderedItems.map(\.navigationEntry))
     }
 
     func activate() {
-        guard let focusedID, let item = items[focusedID] else { return }
-        item.action()
+        let entries = orderedItems
+        guard let id = ControllerNavigationGrid.activate(currentID: focusedID,
+                                                         entries: entries.map(\.navigationEntry),
+                                                         action: { items[$0]?.action() }) else { return }
+        focusedID = id
     }
 
     private var orderedItems: [Item] {
@@ -254,12 +255,20 @@ struct ContentView: View {
             controllerNavigation.enabled = local.consoleMode
             console.onMove = { direction in
                 guard local.consoleMode else { return }
+                let previousGameID = model.selectedGameID
                 controllerNavigation.move(direction)
                 synchronizeFocusedGame()
+                if model.selectedGameID == previousGameID {
+                    moveSelectedConsoleGame(direction)
+                }
             }
             console.onAccept = {
                 guard local.consoleMode else { return }
-                controllerNavigation.activate()
+                if let game = selectedConsolePlayableGame {
+                    model.launch(game)
+                } else {
+                    controllerNavigation.activate()
+                }
             }
             console.onBack = {
                 guard local.consoleMode else { return }
@@ -276,6 +285,32 @@ struct ContentView: View {
         if let selectedGameID = model.selectedGameID, let game = filteredGames.first(where: { $0.id == selectedGameID }) { return game }
         guard !filteredGames.isEmpty else { return nil }
         return filteredGames[min(local.carouselIndex, filteredGames.count - 1)]
+    }
+
+    private var consolePlayableGames: [Game] {
+        model.games.filter { game in
+            CompiledAppSelection.firstExisting(in: game.allCompiledApps) != nil
+        }
+    }
+
+    private var selectedConsolePlayableGame: Game? {
+        guard !consolePlayableGames.isEmpty else { return nil }
+        return consolePlayableGames.first(where: { $0.id == model.selectedGameID }) ?? consolePlayableGames.first
+    }
+
+    private func moveSelectedConsoleGame(_ direction: Int) {
+        let games = consolePlayableGames
+        let entries = games.enumerated().map { index, game in
+            ControllerNavigationEntry(id: game.id, order: index, row: 0, column: index)
+        }
+        guard let currentGame = selectedConsolePlayableGame,
+              let targetID = ControllerNavigationGrid.sequentialDestination(currentID: currentGame.id,
+                                                                              direction: direction,
+                                                                              entries: entries),
+              let targetIndex = games.firstIndex(where: { $0.id == targetID }) else { return }
+        model.selectedGameID = targetID
+        local.carouselIndex = model.games.firstIndex(where: { $0.id == targetID }) ?? targetIndex
+        controllerNavigation.focus("games.card.\(targetID)")
     }
 
     private func synchronizeFocusedGame() {
@@ -336,27 +371,52 @@ struct ContentView: View {
 
     private var consoleLibraryView: some View {
         GeometryReader { geometry in
-            let playableGames = model.games.filter { !$0.allCompiledApps.isEmpty }
-            if playableGames.isEmpty {
-                Text("No playable games yet")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                let columns = max(1, Int((geometry.size.width - 80 + 24) / (282 + 24)))
-                let rowCount = (playableGames.count + columns - 1) / columns
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("Move with a stick or D-pad · Press A to launch · Press B to exit")
-                            .font(.callout).foregroundStyle(.secondary)
-                        Spacer()
+            let playableGames = consolePlayableGames
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Controller Mode", systemImage: "gamecontroller.fill")
+                                .font(.title2.bold())
+                            Text("Choose a built game and press a face button to play.")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        HStack(spacing: 8) {
+                            Circle().fill(console.hasController ? Color.green : Color.orange)
+                                .frame(width: 8, height: 8)
+                            Text(console.hasController ? "Controller connected" : "Connect a controller")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .background(Color(nsColor: .windowBackgroundColor), in: Capsule())
                         Button { setConsoleMode(false) } label: {
-                            Label("Stop Controller Mode", systemImage: "stop.circle.fill")
+                            Label("Exit Mode", systemImage: "xmark.circle")
                         }
                         .buttonStyle(.bordered)
-                        .padding(.horizontal, 26)
-                        .padding(.top, 18)
-                        .padding(.bottom, 10)
                     }
+                    HStack(spacing: 10) {
+                        controllerModeHint("MOVE", detail: "Stick or D-pad", symbol: "dpad")
+                        controllerModeHint("PLAY", detail: "A · X · Y", symbol: "gamecontroller")
+                        controllerModeHint("EXIT", detail: "B", symbol: "arrow.uturn.backward")
+                    }
+                }
+                .padding(20)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.75),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 28)
+                .padding(.top, 22)
+                .padding(.bottom, 8)
+
+                if playableGames.isEmpty {
+                    ContentUnavailableView("No built games yet",
+                                           systemImage: "gamecontroller",
+                                           description: Text("Build a game first. It will appear here when its app is available."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    let columns = max(1, Int((geometry.size.width - 80 + 24) / (282 + 24)))
+                    let rowCount = (playableGames.count + columns - 1) / columns
                     ScrollViewReader { proxy in
                         ScrollView(.vertical) {
                             VStack(spacing: 24) {
@@ -401,8 +461,24 @@ struct ContentView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func controllerModeHint(_ title: String, detail: String, symbol: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 9, weight: .bold)).tracking(0.8).foregroundStyle(.secondary)
+                Text(detail).font(.caption.weight(.semibold))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 11).padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 11))
     }
 
     private var libraryView: some View {
@@ -509,7 +585,7 @@ struct ContentView: View {
         let artworkPath = game.displayCoverPath
         let blurArtwork = !game.isCustomLibraryCover || game.blurCustomCover
         return ZStack {
-            if let path = artworkPath, let art = NSImage(contentsOfFile: path) {
+            if let path = artworkPath, let art = ArtworkSizing.image(at: path) {
                 Image(nsImage: art).resizable().scaledToFill()
                     .blur(radius: blurArtwork ? 14 : 0)
                     .scaleEffect(1.15)
@@ -613,7 +689,7 @@ private struct GamePoster: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             ZStack(alignment: .bottomLeading) {
-                if let path = game.displayCoverPath, let image = NSImage(contentsOfFile: path) {
+                if let path = game.displayCoverPath, let image = ArtworkSizing.image(at: path) {
                     CoverArtwork(image: image, size: posterSize)
                 } else {
                     LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -1329,7 +1405,7 @@ struct ControllerView: View {
         NSWorkspace.shared.open(url)
     }
 
-    fileprivate static func detectedControllers() -> [DetectedController] {
+    fileprivate static func detectedControllers(includeGameControllerMatches: Bool = false) -> [DetectedController] {
         let gameControllers = GCController.controllers().map { controller in
             DetectedController(id: "gc-\(ObjectIdentifier(controller))",
                                name: controller.vendorName ?? "Game Controller",
@@ -1352,7 +1428,7 @@ struct ControllerView: View {
                   page == 0x01, [0x04, 0x05, 0x08].contains(usage) else { return nil }
             let name = (IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String)
                 ?? "USB/Bluetooth HID Controller"
-            guard !gameControllerNames.contains(name.localizedLowercase) else { return nil }
+            guard includeGameControllerMatches || !gameControllerNames.contains(name.localizedLowercase) else { return nil }
             let vendor = integerProperty(device, kIOHIDVendorIDKey) ?? 0
             let product = integerProperty(device, kIOHIDProductIDKey) ?? 0
             let location = integerProperty(device, kIOHIDLocationIDKey)
@@ -1653,6 +1729,8 @@ struct ControllerView: View {
     private var rawHatDirection = -1
     private var discoveryTimer: Timer?
     private var active = false
+    private var lastNavigationMove: (direction: Int, uptime: TimeInterval)?
+    private var lastMenuAction: (action: ControllerNavigationInput.ButtonAction, uptime: TimeInterval)?
 
     func setActive(_ active: Bool) {
         self.active = active
@@ -1695,6 +1773,8 @@ struct ControllerView: View {
             configureDirectionPad(gamepad.leftThumbstick)
             configureDirectionPad(gamepad.rightThumbstick)
             configureButton(gamepad.buttonA, accepts: true)
+            configureButton(gamepad.buttonX, accepts: true)
+            configureButton(gamepad.buttonY, accepts: true)
             configureButton(gamepad.buttonB, accepts: false)
         } else if let gamepad = controller.gamepad {
             configureDirectionPad(gamepad.dpad)
@@ -1710,19 +1790,12 @@ struct ControllerView: View {
     private func configureDirectionPad(_ pad: GCControllerDirectionPad) {
         let id = ObjectIdentifier(pad)
         pad.valueChangedHandler = { [weak self] _, x, y in
-            let direction: Int
-            if abs(x) > abs(y), abs(x) >= 0.55 {
-                direction = x < 0 ? -2 : 2
-            } else if abs(y) >= 0.55 {
-                direction = y > 0 ? -1 : 1
-            } else {
-                direction = 0
-            }
+            let direction = ControllerNavigationInput.direction(x: Double(x), y: Double(y))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let previous = self.directionPads[id, default: 0]
                 self.directionPads[id] = direction
-                if direction != 0 && direction != previous { self.onMove?(direction) }
+                if direction != 0 && direction != previous { self.emitMove(direction) }
             }
         }
     }
@@ -1731,14 +1804,35 @@ struct ControllerView: View {
         button.pressedChangedHandler = { [weak self] _, _, pressed in
             guard pressed else { return }
             Task { @MainActor [weak self] in
-                if accepts { self?.onAccept?() } else { self?.onBack?() }
+                self?.emitMenuAction(accepts ? .accept : .back)
             }
         }
     }
 
+    private func emitMove(_ direction: Int) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if lastNavigationMove?.direction == direction,
+           now - (lastNavigationMove?.uptime ?? 0) < 0.18 { return }
+        lastNavigationMove = (direction, now)
+        onMove?(direction)
+    }
+
+    private func emitMenuAction(_ action: ControllerNavigationInput.ButtonAction) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if lastMenuAction?.action == action,
+           now - (lastMenuAction?.uptime ?? 0) < 0.25 { return }
+        lastMenuAction = (action, now)
+        if action == .accept { onAccept?() } else { onBack?() }
+    }
+
     private func refreshRawCapture() {
         guard active else { return }
-        guard let device = ControllerListState.detectedControllers().first(where: { !$0.isGameController }) else {
+        // Keep a raw HID path even when GameController also recognizes the
+        // device. Some Switch controllers report only part of their controls
+        // through GameController, while the HID interface still exposes D-pad
+        // and face-button events.
+        guard let device = ControllerListState.detectedControllers(includeGameControllerMatches: true)
+            .first(where: { !$0.isGameController }) else {
             rawHIDControllerDetected = false
             rawCapture?.stop()
             rawCapture = nil
@@ -1777,8 +1871,12 @@ struct ControllerView: View {
             let pressed = input.value > 0
             let wasPressed = rawButtonStates[input.usage, default: false]
             rawButtonStates[input.usage] = pressed
-            if pressed && !wasPressed && input.usage == acceptUsage { onAccept?() }
-            else if pressed && !wasPressed && input.usage == backUsage { onBack?() }
+            if pressed && !wasPressed,
+               let action = ControllerNavigationInput.buttonAction(usage: input.usage,
+                                                                   acceptUsage: acceptUsage,
+                                                                   backUsage: backUsage) {
+                emitMenuAction(action)
+            }
             return
         }
         if input.kind == .hat, input.page == 0x01, input.usage == 0x39 {
@@ -1792,20 +1890,20 @@ struct ControllerView: View {
             case 7: direction = -1        // up-left
             default: direction = 0         // centered
             }
-            if offset != rawHatDirection, direction != 0 { onMove?(direction) }
+            if offset != rawHatDirection, direction != 0 { emitMove(direction) }
             rawHatDirection = offset
             return
         }
-        guard input.kind == .axis, input.page == 0x01, (0x30...0x35).contains(input.usage),
-              input.logicalMax > input.logicalMin else { return }
-        let value = 2 * (input.value - Double(input.logicalMin)) / Double(input.logicalMax - input.logicalMin) - 1
-        let direction: Int
+        guard input.kind == .axis, input.page == 0x01, (0x30...0x35).contains(input.usage) else { return }
         let horizontal = input.usage == 0x30 || input.usage == 0x32 || input.usage == 0x33
-        direction = value < -0.65 ? (horizontal ? -2 : -1) : value > 0.65 ? (horizontal ? 2 : 1) : 0
+        guard let direction = ControllerNavigationInput.direction(value: input.value,
+                                                                  logicalMin: input.logicalMin,
+                                                                  logicalMax: input.logicalMax,
+                                                                  horizontal: horizontal) else { return }
         let key = "\(input.page):\(input.usage)"
         let previous = rawAxisDirections[key, default: 0]
         rawAxisDirections[key] = direction
-        if direction != 0 && direction != previous { onMove?(direction) }
+        if direction != 0 && direction != previous { emitMove(direction) }
     }
 
     private func refreshMenuProfile() {
@@ -1980,9 +2078,15 @@ private struct CoverArtwork: View {
     let size: CGFloat
 
     var body: some View {
-        Image(nsImage: image).resizable().scaledToFill()
-            .frame(width: size, height: size)
-            .clipped()
+        let canvas = CGSize(width: size, height: size)
+        let fittedSize = ArtworkSizing.aspectFit(source: image.size, inside: canvas)
+        ZStack {
+            Color.black.opacity(0.08)
+            Image(nsImage: image).interpolation(.high).resizable()
+                .frame(width: fittedSize.width, height: fittedSize.height)
+        }
+        .frame(width: size, height: size)
+        .clipped()
     }
 }
 
@@ -2013,7 +2117,7 @@ private struct GameLibraryTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 7) {
                 ZStack(alignment: .topTrailing) {
-                    if let path = game.displayCoverPath, let image = NSImage(contentsOfFile: path) {
+                    if let path = game.displayCoverPath, let image = ArtworkSizing.image(at: path) {
                         CoverArtwork(image: image, size: size)
                     } else {
                         ZStack {
