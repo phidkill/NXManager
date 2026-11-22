@@ -1,0 +1,28 @@
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode and Swift build output
+.build/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcarchive/
+*.dSYM/
+
+# Generated app bundles; the packaged ZIP in dist/ is intentionally tracked
+dist/*.app/
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.mobileprovision
+prod.keys
