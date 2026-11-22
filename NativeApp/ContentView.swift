@@ -346,6 +346,8 @@ struct ContentView: View {
                 let rowCount = (playableGames.count + columns - 1) / columns
                 VStack(spacing: 0) {
                     HStack {
+                        Text("Move with a stick or D-pad · Press A to launch · Press B to exit")
+                            .font(.callout).foregroundStyle(.secondary)
                         Spacer()
                         Button { setConsoleMode(false) } label: {
                             Label("Stop Controller Mode", systemImage: "stop.circle.fill")
@@ -612,7 +614,7 @@ private struct GamePoster: View {
         VStack(alignment: .leading, spacing: 9) {
             ZStack(alignment: .bottomLeading) {
                 if let path = game.displayCoverPath, let image = NSImage(contentsOfFile: path) {
-                    CoverArtwork(image: image, sourcePath: path, size: posterSize)
+                    CoverArtwork(image: image, size: posterSize)
                 } else {
                     LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: "gamecontroller.fill")
@@ -1640,6 +1642,7 @@ struct ControllerView: View {
     var onMove: ((Int) -> Void)?
     var onAccept: (() -> Void)?
     var onBack: (() -> Void)?
+    private var configuredControllers: Set<ObjectIdentifier> = []
     private var directionPads: [ObjectIdentifier: Int] = [:]
     private var rawCapture: RawHIDControllerCapture?
     private var rawControllerID: String?
@@ -1663,6 +1666,7 @@ struct ControllerView: View {
             rawAxisDirections.removeAll()
             rawButtonStates.removeAll()
             rawHatDirection = -1
+            directionPads.removeAll()
             return
         }
         refresh()
@@ -1674,48 +1678,62 @@ struct ControllerView: View {
     func refresh() {
         controllers = GCController.controllers()
         refreshMenuProfile()
-        directionPads.removeAll()
+        let connectedIDs = Set(controllers.map(ObjectIdentifier.init))
+        configuredControllers.formIntersection(connectedIDs)
         for controller in controllers {
-            controller.extendedGamepad?.valueChangedHandler = { [weak self] gamepad, element in
-                let pad: GCControllerDirectionPad?
-                if element === gamepad.dpad || element === gamepad.dpad.left || element === gamepad.dpad.right
-                    || element === gamepad.dpad.up || element === gamepad.dpad.down {
-                    pad = gamepad.dpad
-                } else if element === gamepad.leftThumbstick || element === gamepad.leftThumbstick.xAxis
-                            || element === gamepad.leftThumbstick.yAxis {
-                    pad = gamepad.leftThumbstick
-                } else if element === gamepad.rightThumbstick || element === gamepad.rightThumbstick.xAxis
-                            || element === gamepad.rightThumbstick.yAxis {
-                    pad = gamepad.rightThumbstick
-                } else {
-                    pad = nil
-                }
-                if let pad {
-                    let id = ObjectIdentifier(pad)
-                    let x = pad.xAxis.value, y = pad.yAxis.value
-                    let direction = abs(x) > abs(y) && abs(x) >= 0.65 ? (x < 0 ? -2 : 2)
-                        : abs(y) >= 0.65 ? (y > 0 ? -1 : 1) : 0
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        let previous = self.directionPads[id, default: 0]
-                        self.directionPads[id] = direction
-                        if direction != 0 && direction != previous { self.onMove?(direction) }
-                    }
-                    return
-                }
-                guard let button = element as? GCControllerButtonInput, button.isPressed else { return }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if element === gamepad.dpad.left { self.onMove?(-2) }
-                    else if element === gamepad.dpad.right { self.onMove?(2) }
-                    else if element === gamepad.dpad.up { self.onMove?(-1) }
-                    else if element === gamepad.dpad.down { self.onMove?(1) }
-                    else if element === gamepad.buttonA { self.onAccept?() }
-                    else if element === gamepad.buttonB { self.onBack?() }
-                }
-            }
+            configureNavigation(for: controller)
         }
         refreshRawCapture()
+    }
+
+    private func configureNavigation(for controller: GCController) {
+        let controllerID = ObjectIdentifier(controller)
+        guard configuredControllers.insert(controllerID).inserted else { return }
+
+        if let gamepad = controller.extendedGamepad {
+            configureDirectionPad(gamepad.dpad)
+            configureDirectionPad(gamepad.leftThumbstick)
+            configureDirectionPad(gamepad.rightThumbstick)
+            configureButton(gamepad.buttonA, accepts: true)
+            configureButton(gamepad.buttonB, accepts: false)
+        } else if let gamepad = controller.gamepad {
+            configureDirectionPad(gamepad.dpad)
+            configureButton(gamepad.buttonA, accepts: true)
+            configureButton(gamepad.buttonB, accepts: false)
+        } else if let gamepad = controller.microGamepad {
+            configureDirectionPad(gamepad.dpad)
+            configureButton(gamepad.buttonA, accepts: true)
+            configureButton(gamepad.buttonX, accepts: false)
+        }
+    }
+
+    private func configureDirectionPad(_ pad: GCControllerDirectionPad) {
+        let id = ObjectIdentifier(pad)
+        pad.valueChangedHandler = { [weak self] _, x, y in
+            let direction: Int
+            if abs(x) > abs(y), abs(x) >= 0.55 {
+                direction = x < 0 ? -2 : 2
+            } else if abs(y) >= 0.55 {
+                direction = y > 0 ? -1 : 1
+            } else {
+                direction = 0
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let previous = self.directionPads[id, default: 0]
+                self.directionPads[id] = direction
+                if direction != 0 && direction != previous { self.onMove?(direction) }
+            }
+        }
+    }
+
+    private func configureButton(_ button: GCControllerButtonInput, accepts: Bool) {
+        button.pressedChangedHandler = { [weak self] _, _, pressed in
+            guard pressed else { return }
+            Task { @MainActor [weak self] in
+                if accepts { self?.onAccept?() } else { self?.onBack?() }
+            }
+        }
     }
 
     private func refreshRawCapture() {
@@ -1959,18 +1977,10 @@ struct SettingsView: View {
 
 private struct CoverArtwork: View {
     let image: NSImage
-    let sourcePath: String
     let size: CGFloat
-
-    private var isAppIcon: Bool {
-        let filename = URL(fileURLWithPath: sourcePath).lastPathComponent.lowercased()
-        return filename.hasSuffix("-icon.png") || filename.contains("-build-icon.")
-    }
 
     var body: some View {
         Image(nsImage: image).resizable().scaledToFill()
-            .frame(width: size, height: size)
-            .scaleEffect(isAppIcon ? 1.2 : 1)
             .frame(width: size, height: size)
             .clipped()
     }
@@ -2004,7 +2014,7 @@ private struct GameLibraryTile: View {
             VStack(alignment: .leading, spacing: 7) {
                 ZStack(alignment: .topTrailing) {
                     if let path = game.displayCoverPath, let image = NSImage(contentsOfFile: path) {
-                        CoverArtwork(image: image, sourcePath: path, size: size)
+                        CoverArtwork(image: image, size: size)
                     } else {
                         ZStack {
                             Color.accentColor.opacity(0.75)
