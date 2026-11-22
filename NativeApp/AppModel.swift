@@ -32,7 +32,6 @@ final class AppModel: ObservableObject {
     @Published var pythonMessage = "Not checked"
     @Published var pythonReady = false
     @Published var artworkLoadingGameIDs: Set<String> = []
-    @Published var artworkMessages: [String: String] = [:]
     private var artworkLookupCompletions: [String: [(Bool) -> Void]] = [:]
     private var sourceIconFallbackPending: Set<String> = []
     private var buildProducedGameIcon = false
@@ -59,33 +58,28 @@ final class AppModel: ObservableObject {
     var validKeys: Bool { FileManager.default.isReadableFile(atPath: (keysPath as NSString).expandingTildeInPath) }
     var engineReady: Bool { FileManager.default.fileExists(atPath: URL(fileURLWithPath: (enginePath as NSString).expandingTildeInPath).appendingPathComponent("scripts/build_ipa_from_nsp.py").path) }
 
-    func ensureBannerArtwork(for gameID: String, forceLookup: Bool = false, completion: ((Bool) -> Void)? = nil) {
+    func ensureNUPFallbackIcon(for gameID: String, completion: ((Bool) -> Void)? = nil) {
         guard let game = games.first(where: { $0.id == gameID }),
               let titleID = NXTitleID.normalize(game.titleID) else {
             completion?(false)
             return
         }
-        let hasBanner = game.bannerPath.map { FileManager.default.fileExists(atPath: $0) } == true
         let hasCover = game.apiCoverPath.map { FileManager.default.fileExists(atPath: $0) } == true
-        guard forceLookup || !hasBanner || !hasCover else {
+        guard !hasCover else {
             completion?(true)
             return
         }
         if let completion { artworkLookupCompletions[gameID, default: []].append(completion) }
         guard !artworkLoadingGameIDs.contains(gameID) else { return }
         artworkLoadingGameIDs.insert(gameID)
-        artworkMessages[gameID] = "Searching online artwork…"
         Task {
             defer { finishArtworkLookup(for: gameID) }
             do {
                 let artworkDirectory = support.appendingPathComponent("Data/Artwork", isDirectory: true)
                 try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
-                let coverFile = artworkDirectory.appendingPathComponent("\(titleID)-cover.jpg")
-                let bannerFile = artworkDirectory.appendingPathComponent("\(titleID)-banner.jpg")
-                if !forceLookup, FileManager.default.fileExists(atPath: coverFile.path),
-                   FileManager.default.fileExists(atPath: bannerFile.path) {
-                    updateArtwork(gameID: gameID, coverPath: coverFile.path, bannerPath: bannerFile.path)
-                    artworkMessages[gameID] = "Online cover and banner are ready."
+                let fallbackIconFile = artworkDirectory.appendingPathComponent("\(titleID)-nup-fallback.jpg")
+                if FileManager.default.fileExists(atPath: fallbackIconFile.path) {
+                    updateNUPFallbackIcon(gameID: gameID, path: fallbackIconFile.path)
                     return
                 }
 
@@ -93,7 +87,6 @@ final class AppModel: ObservableObject {
                 var index = (try? Data(contentsOf: indexURL))
                     .flatMap { try? JSONDecoder().decode([String: TitleDBArtwork].self, from: $0) } ?? [:]
                 let key = titleID
-                if forceLookup { index.removeValue(forKey: key) }
                 if index[key] == nil {
                     let databaseURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
                     let (data, response) = try await URLSession.shared.data(from: databaseURL)
@@ -108,40 +101,15 @@ final class AppModel: ObservableObject {
                     }
                     try JSONEncoder().encode(index).write(to: indexURL, options: .atomic)
                 }
-                guard let artwork = index[key], artwork.bannerURL != nil || artwork.iconURL != nil else {
-                    artworkMessages[gameID] = "No online artwork is listed for Title ID \(titleID)."
-                    return
-                }
-
-                var coverPath: String?
-                if forceLookup || !hasCover {
-                    let coverURLs = [artwork.iconURL, artwork.bannerURL].compactMap { $0 }
-                    for address in coverURLs {
-                        if try await Self.downloadArtwork(address, to: coverFile, landscapeOnly: false) {
-                            coverPath = coverFile.path
-                            break
-                        }
+                guard let artwork = index[key] else { return }
+                for address in [artwork.iconURL, artwork.bannerURL].compactMap({ $0 }) {
+                    if try await Self.downloadArtwork(address, to: fallbackIconFile, landscapeOnly: false) {
+                        updateNUPFallbackIcon(gameID: gameID, path: fallbackIconFile.path)
+                        return
                     }
-                } else {
-                    coverPath = game.apiCoverPath
                 }
-
-                var downloadedBannerPath: String?
-                if forceLookup || !hasBanner, let address = artwork.bannerURL,
-                   try await Self.downloadArtwork(address, to: bannerFile, landscapeOnly: true) {
-                    downloadedBannerPath = bannerFile.path
-                } else {
-                    downloadedBannerPath = game.bannerPath
-                }
-
-                if coverPath != nil || downloadedBannerPath != nil {
-                    updateArtwork(gameID: gameID, coverPath: coverPath, bannerPath: downloadedBannerPath)
-                }
-                artworkMessages[gameID] = coverPath != nil
-                    ? "Online game artwork loaded."
-                    : "No online cover image could be loaded for Title ID \(titleID)."
             } catch {
-                artworkMessages[gameID] = "Online artwork lookup failed: \(error.localizedDescription)"
+                // Artwork is optional. NXNative can still build without this fallback.
             }
         }
     }
@@ -150,15 +118,13 @@ final class AppModel: ObservableObject {
         artworkLoadingGameIDs.remove(gameID)
         let game = games.first { $0.id == gameID }
         let hasCover = game?.apiCoverPath.map { FileManager.default.fileExists(atPath: $0) } == true
-        let hasBanner = game?.bannerPath.map { FileManager.default.fileExists(atPath: $0) } == true
         let completions = artworkLookupCompletions.removeValue(forKey: gameID) ?? []
-        completions.forEach { $0(hasCover || hasBanner) }
+        completions.forEach { $0(hasCover) }
     }
 
-    private func updateArtwork(gameID: String, coverPath: String?, bannerPath: String?) {
+    private func updateNUPFallbackIcon(gameID: String, path: String) {
         guard let index = games.firstIndex(where: { $0.id == gameID }) else { return }
-        if let coverPath { games[index].apiCoverPath = coverPath }
-        if let bannerPath { games[index].bannerPath = bannerPath }
+        games[index].apiCoverPath = path
         saveLibrary()
     }
 
@@ -467,6 +433,10 @@ final class AppModel: ObservableObject {
     }
 
     func setCover(for gameID: String, from sourceURL: URL) {
+        guard buildGameID != gameID else {
+            alertMessage = "The cover cannot be changed while this game is building."
+            return
+        }
         do {
             let folder = support.appendingPathComponent("Data/Covers", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -475,6 +445,7 @@ final class AppModel: ObservableObject {
             try FileManager.default.copyItem(at: sourceURL, to: destination)
             if let index = games.firstIndex(where: { $0.id == gameID }) {
                 games[index].coverPath = destination.path
+                games[index].blurCustomCover = true
                 saveLibrary()
             }
         } catch {
@@ -482,14 +453,13 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func useOnlineCoverAsCover(for gameID: String) {
-        guard let index = games.firstIndex(where: { $0.id == gameID }),
-              let path = games[index].apiCoverPath,
-              FileManager.default.fileExists(atPath: path) else {
-            alertMessage = "Search for online game artwork first."
+    func setCustomCoverBlur(for gameID: String, enabled: Bool) {
+        guard buildGameID != gameID,
+              let index = games.firstIndex(where: { $0.id == gameID }),
+              games[index].isCustomLibraryCover else {
             return
         }
-        games[index].coverPath = nil
+        games[index].blurCustomCover = enabled
         saveLibrary()
     }
 
@@ -513,7 +483,7 @@ final class AppModel: ObservableObject {
             build(refreshedGame)
             return
         }
-        ensureBannerArtwork(for: game.id) { [weak self] artworkFound in
+        ensureNUPFallbackIcon(for: game.id) { [weak self] artworkFound in
             guard let self, let latestGame = self.games.first(where: { $0.id == game.id }) else { return }
             if !artworkFound {
                 self.sourceIconFallbackPending.remove(game.id)
@@ -545,7 +515,9 @@ final class AppModel: ObservableObject {
 
     func renameGame(_ gameID: String, to name: String) {
         let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedName.isEmpty, let index = games.firstIndex(where: { $0.id == gameID }) else { return }
+        guard buildGameID != gameID,
+              !cleanedName.isEmpty,
+              let index = games.firstIndex(where: { $0.id == gameID }) else { return }
         games[index].name = cleanedName
         games.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         saveLibrary()
@@ -884,8 +856,8 @@ final class AppModel: ObservableObject {
             args += ["--icon", iconPath]
         }
         if game.usesNUPContainer,
-           let fallbackIcon = [game.apiCoverPath, game.bannerPath].compactMap({ $0 })
-            .first(where: { FileManager.default.isReadableFile(atPath: $0) }) {
+           let fallbackIcon = game.apiCoverPath,
+           FileManager.default.isReadableFile(atPath: fallbackIcon) {
             args += ["--fallback-icon", fallbackIcon]
         }
         args += ["--app-name", game.name, "--platform", "mac-app", "--progress", "json", "--work-dir", workDirectory.path, "-o", output.path]
@@ -950,7 +922,7 @@ final class AppModel: ObservableObject {
                     self.saveLibrary()
                     if result.status == "success" {
                         if shouldRetryNUPWithArtwork {
-                            self.ensureBannerArtwork(for: game.id) { [weak self] artworkFound in
+                            self.ensureNUPFallbackIcon(for: game.id) { [weak self] artworkFound in
                                 guard let self else { return }
                                 self.sourceIconFallbackPending.remove(game.id)
                                 guard artworkFound, let latestGame = self.games.first(where: { $0.id == game.id }) else {
@@ -961,7 +933,9 @@ final class AppModel: ObservableObject {
                             }
                         } else {
                             self.sourceIconFallbackPending.remove(game.id)
-                            self.ensureBannerArtwork(for: game.id)
+                            if game.usesNUPContainer {
+                                self.ensureNUPFallbackIcon(for: game.id)
+                            }
                         }
                     } else {
                         self.sourceIconFallbackPending.remove(game.id)

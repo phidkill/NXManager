@@ -233,7 +233,6 @@ struct ContentView: View {
             model.checkSetupRequirements()
             if !didCompleteSetup { local.showSetupWizard = true }
             console.refresh()
-            if let game = selectedLibraryGame { model.ensureBannerArtwork(for: game.id) }
         }
         .onChange(of: console.hasController) { _, connected in
             if connected, !local.consoleMode {
@@ -500,18 +499,18 @@ struct ContentView: View {
         .padding(30)
         .onChange(of: selectedLibraryGame?.id) { _, id in
             model.selectedGameID = id
-            if let id { model.ensureBannerArtwork(for: id) }
         }
     }
 
     private func gameHero(_ game: Game) -> some View {
         let height: CGFloat = 244
-        let artworkPath = game.bannerPath ?? game.displayCoverPath
+        let artworkPath = game.displayCoverPath
+        let blurArtwork = !game.isCustomLibraryCover || game.blurCustomCover
         return ZStack {
             if let path = artworkPath, let art = NSImage(contentsOfFile: path) {
                 Image(nsImage: art).resizable().scaledToFill()
-                    .blur(radius: game.bannerPath == nil ? 14 : 0)
-                    .scaleEffect(game.bannerPath == nil ? 1.15 : 1)
+                    .blur(radius: blurArtwork ? 14 : 0)
+                    .scaleEffect(1.15)
                     .overlay(LinearGradient(colors: [.black.opacity(0.64), .black.opacity(0.10), .black.opacity(0.26)], startPoint: .leading, endPoint: .trailing))
             } else {
                 ZStack(alignment: .topTrailing) {
@@ -523,7 +522,7 @@ struct ContentView: View {
             LinearGradient(colors: [.black.opacity(0.12), .black.opacity(0.80)], startPoint: .top, endPoint: .bottom)
             HStack {
                 VStack(alignment: .leading, spacing: 11) {
-                    Text(artworkPath == nil ? (model.artworkLoadingGameIDs.contains(game.id) ? "LOADING GAME ARTWORK" : "GAME LIBRARY") : (game.allCompiledApps.isEmpty ? "READY TO BUILD" : "READY TO PLAY"))
+                    Text(artworkPath == nil ? "GAME LIBRARY" : (game.allCompiledApps.isEmpty ? "READY TO BUILD" : "READY TO PLAY"))
                         .font(.caption.weight(.bold)).tracking(1.4).foregroundStyle(.white.opacity(0.68))
                     Text(game.name).font(.system(size: 31, weight: .bold)).lineLimit(2).foregroundStyle(.white)
                     Text(game.allCompiledApps.isEmpty ? (game.hasBasePackage ? "Your game files are ready to build." : "Add game files to get started.") : "Your game is ready. Pick up where you left off.")
@@ -2068,20 +2067,33 @@ struct GameDetailView: View {
     @State private var titleDraft = ""
 
     private var current: Game { model.games.first(where: { $0.id == game.id }) ?? game }
+    private var isBuildingCurrentGame: Bool { model.buildGameID == current.id }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 20) {
                 GamePoster(game: current, isFocused: true, posterSize: 230).frame(width: 230)
                 VStack(alignment: .leading, spacing: 13) {
                     HStack(spacing: 8) {
-                        TextField("Game title", text: $titleDraft)
+                        TextField("Library and app name", text: $titleDraft)
                             .font(.system(size: 27, weight: .bold))
                             .textFieldStyle(.plain)
-                            .onSubmit { model.renameGame(current.id, to: titleDraft) }
+                            .disabled(isBuildingCurrentGame)
+                            .onSubmit {
+                                guard !isBuildingCurrentGame else { return }
+                                model.renameGame(current.id, to: titleDraft)
+                            }
                         Button("Save") { model.renameGame(current.id, to: titleDraft) }
                             .buttonStyle(.bordered)
-                            .disabled(titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || titleDraft == current.name)
+                            .disabled(isBuildingCurrentGame || titleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || titleDraft == current.name)
+                    }
+                    Text("Used in your library and as the name of the next built app.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if isBuildingCurrentGame {
+                        Label("Name and cover editing are locked while this game is building.", systemImage: "lock.fill")
+                            .font(.caption).foregroundStyle(.orange)
                     }
                     if let titleID = current.titleID {
                         Label(titleID, systemImage: "number").font(.caption.monospaced()).foregroundStyle(.secondary)
@@ -2091,41 +2103,31 @@ struct GameDetailView: View {
                         Text(message).font(.callout).foregroundStyle(current.lastBuildStatus == "failed" ? Color.red : Color.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Button { choosePoster() } label: { Label("Choose Custom Library Cover…", systemImage: "photo") }
+                    Button { choosePoster() } label: { Label("Choose Custom Library Poster…", systemImage: "photo") }
                         .buttonStyle(.borderless)
-                    Text("Changes the library poster only. It does not change the built app’s icon.")
+                        .disabled(isBuildingCurrentGame)
+                    Text("Changes the sharp library poster and the image used behind the game header. It does not change the built app’s icon.")
                         .font(.caption).foregroundStyle(.secondary)
-                    if current.apiCoverPath != nil {
-                        Button { model.useOnlineCoverAsCover(for: current.id) } label: {
-                            Label("Use Online Game Cover", systemImage: "globe")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    if current.titleID != nil {
-                        Button {
-                            model.ensureBannerArtwork(for: current.id, forceLookup: true)
-                        } label: {
-                            Label(model.artworkLoadingGameIDs.contains(current.id) ? "Searching Online…" : "Search Online Artwork", systemImage: "magnifyingglass")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(model.artworkLoadingGameIDs.contains(current.id))
-                    } else {
-                        Text("Online artwork lookup becomes available after NXNative reads the game’s Title ID.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let artworkMessage = model.artworkMessages[current.id] {
-                        Text(artworkMessage).font(.caption).foregroundStyle(.secondary)
+                    if current.isCustomLibraryCover {
+                        Toggle("Blur custom cover in the game header", isOn: Binding(
+                            get: { current.blurCustomCover },
+                            set: { model.setCustomCoverBlur(for: current.id, enabled: $0) }
+                        ))
+                        .toggleStyle(.switch)
+                        .disabled(isBuildingCurrentGame)
                     }
                     Button { chooseBuildIcon() } label: {
                         Label(current.buildIconPath == nil ? "Choose Icon for Next Build…" : "Change Icon for Next Build…", systemImage: "app.dashed")
                     }
                     .buttonStyle(.borderless)
+                    .disabled(isBuildingCurrentGame)
                     if current.buildIconPath != nil {
                         HStack(spacing: 8) {
                             Label("Custom icon is set for the next build.", systemImage: "checkmark.circle.fill")
                                 .font(.caption).foregroundStyle(.green)
                             Button("Reset to Source Icon") { model.resetBuildIcon(for: current.id) }
                                 .buttonStyle(.borderless)
+                                .disabled(isBuildingCurrentGame)
                                 .help("Clear the custom icon so the next build uses the icon from the game files.")
                         }
                     } else {
@@ -2191,44 +2193,29 @@ struct GameDetailView: View {
                     .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
                 }
             }
-            HStack {
-                if current.hasBasePackage && current.allCompiledApps.isEmpty {
-                    Button { model.build(current) } label: {
-                        Label(model.buildGameID == current.id
-                              ? (model.buildHasStarted ? "Building…" : "Preparing…")
-                              : "Build for Mac", systemImage: "hammer")
-                    }
-                        .buttonStyle(.borderedProminent).disabled(model.buildGameID != nil)
-                } else if current.hasBasePackage && current.buildIconPath != nil {
-                    HStack {
-                        Button { model.build(current) } label: {
-                            Label(model.buildGameID == current.id
-                                  ? (model.buildHasStarted ? "Building…" : "Preparing…")
-                                  : "Rebuild with Custom Icon", systemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(.borderedProminent).disabled(model.buildGameID != nil)
-
-                        Button { model.rebuildFromSourceIcon(current) } label: {
-                            Label("Rebuild from Source Icon", systemImage: "arrow.uturn.backward")
-                        }
-                        .buttonStyle(.bordered).disabled(model.buildGameID != nil)
-                        .help("Use the NUP’s own icon when available. If it has none, use matching online artwork as NXNative’s fallback.")
-                    }
-                } else if current.buildIconPath != nil && !current.hasBasePackage {
+                }
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                if current.hasBasePackage {
+                    buildActions
+                } else if current.buildIconPath != nil {
                     Text("Import the original game files to rebuild with this icon.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Button { model.openSaveFolder(for: current) } label: { Label("Open Save Folder", systemImage: "folder") }
-                    .disabled(current.titleID == nil)
-                    
-                Spacer()
-                Button("Remove from Library", role: .destructive) { model.removeGame(current); dismiss() }
-                    
-                Button("Delete Game and Data…", role: .destructive) { confirmFullDeletion = true }
-                    .disabled(model.buildGameID == current.id)
-                    
-                Button("Done") { dismiss() }
-                    
+
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        saveFolderButton
+                        Spacer(minLength: 8)
+                        removeGameButton
+                        deleteGameButton
+                        Button("Done") { dismiss() }
+                    }
+                    VStack(alignment: .trailing, spacing: 8) {
+                        HStack { saveFolderButton; Spacer(); Button("Done") { dismiss() } }
+                        HStack { Spacer(); removeGameButton; deleteGameButton }
+                    }
+                }
             }
         }
         .confirmationDialog("Delete \(current.name) and all its data?", isPresented: $confirmFullDeletion, titleVisibility: .visible) {
@@ -2243,8 +2230,58 @@ struct GameDetailView: View {
             Text(model.fullDeletionSummary(for: current))
         }
         .padding(32)
-        .frame(width: 790, height: 620)
+        .frame(minWidth: 790, idealWidth: 1000, maxWidth: 1200, minHeight: 620, idealHeight: 720)
         .onAppear { titleDraft = current.name }
+    }
+
+    @ViewBuilder private var buildActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                sourceBuildButton
+                if current.buildIconPath != nil { customIconBuildButton }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                sourceBuildButton.frame(maxWidth: .infinity)
+                if current.buildIconPath != nil { customIconBuildButton.frame(maxWidth: .infinity) }
+            }
+        }
+    }
+
+    private var sourceBuildButton: some View {
+        Button { model.rebuildFromSourceIcon(current) } label: {
+            Label(model.buildGameID == current.id
+                  ? (model.buildHasStarted ? "Building…" : "Preparing…")
+                  : (current.allCompiledApps.isEmpty ? "Build from Source" : "Rebuild from Source"),
+                  systemImage: current.allCompiledApps.isEmpty ? "hammer" : "arrow.uturn.backward")
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.buildGameID != nil)
+        .help("Build using the game’s built-in icon, with online artwork only as a NUP app-icon fallback when needed.")
+    }
+
+    private var customIconBuildButton: some View {
+        Button { model.build(current) } label: {
+            Label(model.buildGameID == current.id
+                  ? (model.buildHasStarted ? "Building…" : "Preparing…")
+                  : "Rebuild with Custom Icon", systemImage: "app.dashed")
+        }
+        .buttonStyle(.bordered)
+        .disabled(model.buildGameID != nil)
+    }
+
+    private var saveFolderButton: some View {
+        Button { model.openSaveFolder(for: current) } label: { Label("Open Save Folder", systemImage: "folder") }
+            .disabled(current.titleID == nil)
+    }
+
+    private var removeGameButton: some View {
+        Button("Remove from Library", role: .destructive) { model.removeGame(current); dismiss() }
+            .disabled(model.buildGameID == current.id)
+    }
+
+    private var deleteGameButton: some View {
+        Button("Delete Game and Data…", role: .destructive) { confirmFullDeletion = true }
+            .disabled(model.buildGameID == current.id)
     }
 
     @ViewBuilder private var buildStatusLabel: some View {

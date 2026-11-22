@@ -33,6 +33,7 @@ struct Game: Identifiable, Codable, Hashable {
     var name: String
     var packages: [GamePackage]
     var coverPath: String?
+    var blurCustomCover: Bool
     var apiCoverPath: String?
     var buildIconPath: String?
     var bannerPath: String?
@@ -43,7 +44,7 @@ struct Game: Identifiable, Codable, Hashable {
     var lastBuildLog: [String]?
     var compiledApps: [CompiledApp]
 
-    init(id: String, titleID: String?, name: String, packages: [GamePackage], coverPath: String? = nil, apiCoverPath: String? = nil, buildIconPath: String? = nil, bannerPath: String? = nil,
+    init(id: String, titleID: String?, name: String, packages: [GamePackage], coverPath: String? = nil, blurCustomCover: Bool = true, apiCoverPath: String? = nil, buildIconPath: String? = nil, bannerPath: String? = nil,
          builtAppPath: String? = nil, managedBuildAppPath: String? = nil, lastBuildStatus: String? = nil, lastBuildMessage: String? = nil,
          lastBuildLog: [String]? = nil, compiledApps: [CompiledApp] = []) {
         self.id = id
@@ -51,6 +52,7 @@ struct Game: Identifiable, Codable, Hashable {
         self.name = name
         self.packages = packages
         self.coverPath = coverPath
+        self.blurCustomCover = blurCustomCover
         self.apiCoverPath = apiCoverPath
         self.buildIconPath = buildIconPath
         self.bannerPath = bannerPath
@@ -66,13 +68,11 @@ struct Game: Identifiable, Codable, Hashable {
     }
 
     var hasBasePackage: Bool { packages.contains { $0.role == "base" } }
-    var displayCoverPath: String? {
-        if let coverPath,
-           URL(fileURLWithPath: coverPath).lastPathComponent.contains("-poster.") {
-            return coverPath
-        }
-        return apiCoverPath ?? coverPath
+    var isCustomLibraryCover: Bool {
+        guard let coverPath else { return false }
+        return URL(fileURLWithPath: coverPath).lastPathComponent.contains("-poster.")
     }
+    var displayCoverPath: String? { coverPath }
     /// NXNative reads Switch 2 games from a single NUP container and does not need prod.keys.
     var usesNUPContainer: Bool { packages.contains { $0.fileURL.pathExtension.lowercased() == "nup" } }
     var allCompiledApps: [CompiledApp] {
@@ -82,7 +82,7 @@ struct Game: Identifiable, Codable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, titleID, name, packages, coverPath, apiCoverPath, buildIconPath, bannerPath, builtAppPath, managedBuildAppPath, lastBuildStatus, lastBuildMessage, lastBuildLog, compiledApps
+        case id, titleID, name, packages, coverPath, blurCustomCover, apiCoverPath, buildIconPath, bannerPath, builtAppPath, managedBuildAppPath, lastBuildStatus, lastBuildMessage, lastBuildLog, compiledApps
     }
 
     init(from decoder: Decoder) throws {
@@ -92,6 +92,7 @@ struct Game: Identifiable, Codable, Hashable {
         name = try values.decode(String.self, forKey: .name)
         packages = try values.decodeIfPresent([GamePackage].self, forKey: .packages) ?? []
         coverPath = try values.decodeIfPresent(String.self, forKey: .coverPath)
+        blurCustomCover = try values.decodeIfPresent(Bool.self, forKey: .blurCustomCover) ?? true
         apiCoverPath = try values.decodeIfPresent(String.self, forKey: .apiCoverPath)
         buildIconPath = try values.decodeIfPresent(String.self, forKey: .buildIconPath)
         bannerPath = try values.decodeIfPresent(String.self, forKey: .bannerPath)
