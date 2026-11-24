@@ -554,7 +554,7 @@ struct ContentView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal) {
-                        HStack(alignment: .top, spacing: 16) {
+                        LazyHStack(alignment: .top, spacing: 16) {
                             ForEach(Array(filteredGames.enumerated()), id: \.element.id) { index, game in
                                 GameLibraryTile(game: game, selected: game.id == selected.id, consoleMode: local.consoleMode,
                                                 navigationOrder: 300 + index, navigationRow: 0, navigationColumn: index) {
