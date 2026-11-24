@@ -2,26 +2,19 @@
 
 NXManager is a native SwiftUI game library and builder for NXNative on Apple Silicon Macs. It imports XCI, NSP, NSZ, XCZ, and NUP packages without moving the originals; builds Mac game apps; and organizes compiled apps, artwork, controller profiles, and game data.
 
-## Get the prebuilt app
+## Build NXManager
 
-The repository includes a packaged native build at `dist/NXManager-macOS.zip`. From the repository root, extract it into Downloads:
-
-```bash
-ditto -x -k dist/NXManager-macOS.zip ~/Downloads
-open ~/Downloads/NXManager.app
-```
-
-You can move `NXManager.app` to `/Applications` in Finder. The archive is not notarized; if macOS blocks the first launch, Control-click the app, choose **Open**, then confirm.
-
-## Build NXManager from source
-
-Build on an Apple Silicon Mac with Xcode and its command-line tools selected:
+Build the app on an Apple Silicon Mac with Xcode and its command-line tools selected:
 
 ```bash
 ./build_macos.sh
 ```
 
-The native app is written in SwiftUI and has a macOS 14 deployment target. The build produces `dist/NXManager.app`.
+The script builds the native SwiftUI app (macOS 14 deployment target) and creates `dist/NXManager.app`. Open it with:
+
+```bash
+open dist/NXManager.app
+```
 
 ## First-launch setup and NXNative tools
 

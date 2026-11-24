@@ -15,8 +15,9 @@ xcuserdata/
 *.xcarchive/
 *.dSYM/
 
-# Generated app bundles; the packaged ZIP in dist/ is intentionally tracked
+# Generated app bundles and archives
 dist/*.app/
+dist/*.zip
 
 # Local credentials and signing material
 .env

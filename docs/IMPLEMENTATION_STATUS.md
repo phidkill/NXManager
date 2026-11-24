@@ -6,7 +6,7 @@ Date: 18 November 2026
 
 The supported NXManager interface is the native macOS app in `NativeApp/`. It provides a game library, package and compiled-app import, NUP support, background builds with JSON progress, custom cover art, game-app-icon cover reuse, online banner lookup, controller calibration, HID settings, and per-game build status/logs. The app stores its library in `~/Library/Application Support/NXManager/library.json` and does not move original package files.
 
-The included `dist/NXManager-macOS.zip` is a prebuilt app archive. Rebuild the app from current sources with `./build_macos.sh`; the script writes `dist/NXManager.app`.
+Build the macOS app from source with `./build_macos.sh`; the script writes `dist/NXManager.app`.
 
 ## NXNative setup
 
