@@ -331,24 +331,18 @@ struct ContentView: View {
                 Spacer()
             }
             .foregroundStyle(Color.primary.opacity(selected ? 1 : 0.76))
-            .padding(.leading, 15).padding(.trailing, 12).frame(height: 46)
-            .background(selected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 11))
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .padding(.leading, 15).padding(.trailing, 12).frame(height: 50)
+            .background(selected ? Color.accentColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain).padding(.horizontal, 10)
     }
 
     private func sidebarContent(height: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: "gamecontroller.fill").font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white).frame(width: 38, height: 38)
-                    .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("NXManager").font(.headline)
-                    Text("GAME LIBRARY").font(.system(size: 9, weight: .bold)).tracking(1.1).foregroundStyle(.secondary)
-                }
-            }.padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 14)
+            Text("NXManager")
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, 26).padding(.top, 24).padding(.bottom, 22)
             VStack(spacing: 6) {
                 sidebarRow("Games", icon: "square.grid.2x2.fill", section: .library)
                 sidebarRow("Import", icon: "square.and.arrow.down.fill", section: .importing)
@@ -492,21 +486,24 @@ struct ContentView: View {
                 Spacer()
                 Button(action: chooseCompiledApp) {
                     Label("Add Compiled Game", systemImage: "app.badge.plus")
-                        .frame(minHeight: 42).contentShape(Rectangle())
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(minHeight: 48).contentShape(Rectangle())
                 }
                 .buttonStyle(.bordered)
                 .help("Choose an existing NXNative Mac game app to add to your library")
                 
                 Button(action: chooseNewGameFolder) {
                     Label("Add New", systemImage: "plus")
-                        .frame(minHeight: 42).contentShape(Rectangle())
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(minHeight: 48).contentShape(Rectangle())
                 }
                 .buttonStyle(.borderedProminent)
                 .help("Choose a game folder to add to your library")
                 
                 Button { setConsoleMode(!local.consoleMode) } label: {
                     Label(local.consoleMode ? "Exit Console Mode" : "Console Mode", systemImage: "gamecontroller")
-                        .frame(minHeight: 42).contentShape(Rectangle())
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(minHeight: 48).contentShape(Rectangle())
                 }
                 .buttonStyle(.bordered)
                 .help(local.consoleMode ? "Exit controller navigation mode" : "Enable controller navigation mode")
@@ -2098,7 +2095,7 @@ private struct GameLibraryTile: View {
     let navigationRow: Int
     let navigationColumn: Int
     let action: () -> Void
-    private var size: CGFloat { consoleMode ? 260 : 154 }
+    private var size: CGFloat { consoleMode ? 260 : 176 }
     private var cardWidth: CGFloat { size + 22 }
     private var status: GameLibraryStatus {
         GameLibraryStatus(lastBuildStatus: game.lastBuildStatus,
@@ -2136,13 +2133,12 @@ private struct GameLibraryTile: View {
             }
             .padding(10)
             .frame(width: cardWidth, alignment: .topLeading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(selected ? 1 : 0.72),
-                        in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(Color(nsColor: .controlBackgroundColor).opacity(selected ? 1 : 0.62),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(selected ? (consoleMode ? Color.orange.opacity(0.65) : Color.accentColor.opacity(0.4)) : Color.primary.opacity(0.08), lineWidth: selected ? 1.5 : 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(selected ? (consoleMode ? Color.orange.opacity(0.65) : Color.accentColor.opacity(0.4)) : Color.primary.opacity(0.06), lineWidth: selected ? 1.5 : 1)
             }
-            .shadow(color: .black.opacity(selected && !consoleMode ? 0.15 : 0.06), radius: selected && !consoleMode ? 10 : 4, y: 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
