@@ -476,72 +476,77 @@ struct ContentView: View {
     }
 
     private var libraryView: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Games").font(.largeTitle.bold())
-                    Text("\(model.games.count) games  ·  \(model.games.reduce(0) { $0 + $1.allCompiledApps.count }) compiled apps")
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Games").font(.largeTitle.weight(.bold))
+                    Text("\(model.games.count) games · \(model.games.reduce(0) { $0 + $1.allCompiledApps.count }) built apps")
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
-                Spacer()
-                Button(action: chooseCompiledApp) {
-                    Label("Add Compiled Game", systemImage: "app.badge.plus")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(minHeight: 48).contentShape(Rectangle())
-                }
-                .buttonStyle(.bordered)
-                .help("Choose an existing NXNative Mac game app to add to your library")
-                
-                Button(action: chooseNewGameFolder) {
-                    Label("Add New", systemImage: "plus")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(minHeight: 48).contentShape(Rectangle())
+                Spacer(minLength: 12)
+                Menu {
+                    Button("Import Game Files…", systemImage: "folder.badge.plus", action: chooseNewGameFolder)
+                    Button("Add Compiled App…", systemImage: "app.badge.plus", action: chooseCompiledApp)
+                } label: {
+                    Label("Add Game", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
-                .help("Choose a game folder to add to your library")
-                
+                .controlSize(.large)
+                .help("Import game files or add an existing Mac app")
+
                 Button { setConsoleMode(!local.consoleMode) } label: {
-                    Label(local.consoleMode ? "Exit Console Mode" : "Console Mode", systemImage: "gamecontroller")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(minHeight: 48).contentShape(Rectangle())
+                    Label("Controller", systemImage: "gamecontroller")
                 }
                 .buttonStyle(.bordered)
-                .help(local.consoleMode ? "Exit controller navigation mode" : "Enable controller navigation mode")
-                
+                .controlSize(.large)
+                .help(local.consoleMode ? "Exit controller mode" : "Browse with a controller")
+
+                Button { model.openOutputFolder() } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .help("Open Builds Folder")
             }
             .contentShape(Rectangle())
             .allowsHitTesting(true)
             .zIndex(10)
-            HStack(spacing: 12) {
-                TextField("Search games", text: $local.search).textFieldStyle(.roundedBorder).frame(maxWidth: 300)
-                    .focused($librarySearchFocused)
-                    
-                Spacer()
-                Button { model.openOutputFolder() } label: { Label("Builds Folder", systemImage: "folder") }
-                    .buttonStyle(.borderless)
-                    
-            }
+
+            TextField("Search games", text: $local.search)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 340)
+                .focused($librarySearchFocused)
+
             if model.games.isEmpty {
                 ContentUnavailableView {
                     Label("Your library is empty", systemImage: "gamecontroller")
                 } description: {
                     Text("Import game files or add a compiled Mac app to get started.")
                 } actions: {
-                    HStack {
-                        Button("Import Game Files") { model.selectedSection = .importing }.buttonStyle(.borderedProminent)
-                            
-                        Button("Add Compiled Game") { chooseCompiledApp() }.buttonStyle(.bordered)
-                            
+                    Menu {
+                        Button("Import Game Files…", systemImage: "folder.badge.plus", action: chooseNewGameFolder)
+                        Button("Add Compiled App…", systemImage: "app.badge.plus", action: chooseCompiledApp)
+                    } label: {
+                        Label("Add Game", systemImage: "plus")
                     }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filteredGames.isEmpty {
                 ContentUnavailableView.search(text: local.search).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let selected = selectedLibraryGame {
                 gameHero(selected)
-                Text("YOUR GAMES").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Library").font(.title3.weight(.semibold))
+                    Text("\(filteredGames.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                    Spacer()
+                }
+
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal) {
-                        HStack(spacing: 12) {
+                        HStack(alignment: .top, spacing: 16) {
                             ForEach(Array(filteredGames.enumerated()), id: \.element.id) { index, game in
                                 GameLibraryTile(game: game, selected: game.id == selected.id, consoleMode: local.consoleMode,
                                                 navigationOrder: 300 + index, navigationRow: 0, navigationColumn: index) {
@@ -559,6 +564,7 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .padding(.vertical, 4)
                     }
                     .scrollIndicators(.hidden)
                     .onChange(of: selected.id) { _, id in
@@ -571,6 +577,7 @@ struct ContentView: View {
         // Keep the Games header and action buttons at a fixed position while
         // Console Mode changes input handling. Resizing this full-height view
         // made SwiftUI center its content under the title bar on macOS.
+        .tint(Color(red: 0.76, green: 0.36, blue: 0.22))
         .padding(30)
         .onChange(of: selectedLibraryGame?.id) { _, id in
             model.selectedGameID = id
@@ -578,54 +585,82 @@ struct ContentView: View {
     }
 
     private func gameHero(_ game: Game) -> some View {
-        let height: CGFloat = 244
-        let artworkPath = game.displayCoverPath
-        let blurArtwork = !game.isCustomLibraryCover || game.blurCustomCover
-        return ZStack {
-            if let path = artworkPath, let art = ArtworkSizing.image(at: path) {
-                Image(nsImage: art).resizable().scaledToFill()
-                    .blur(radius: blurArtwork ? 14 : 0)
-                    .scaleEffect(1.15)
-                    .overlay(LinearGradient(colors: [.black.opacity(0.64), .black.opacity(0.10), .black.opacity(0.26)], startPoint: .leading, endPoint: .trailing))
-            } else {
-                ZStack(alignment: .topTrailing) {
-                    LinearGradient(colors: [Color.accentColor.opacity(0.62), Color.black.opacity(0.92)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: "gamecontroller.fill").font(.system(size: 150, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.07)).padding(.trailing, 52).padding(.top, 28)
-                }
-            }
-            LinearGradient(colors: [.black.opacity(0.12), .black.opacity(0.80)], startPoint: .top, endPoint: .bottom)
-            HStack {
-                VStack(alignment: .leading, spacing: 11) {
-                    Text(artworkPath == nil ? "GAME LIBRARY" : (game.allCompiledApps.isEmpty ? "READY TO BUILD" : "READY TO PLAY"))
-                        .font(.caption.weight(.bold)).tracking(1.4).foregroundStyle(.white.opacity(0.68))
-                    Text(game.name).font(.system(size: 31, weight: .bold)).lineLimit(2).foregroundStyle(.white)
-                    Text(game.allCompiledApps.isEmpty ? (game.hasBasePackage ? "Your game files are ready to build." : "Add game files to get started.") : "Your game is ready. Pick up where you left off.")
-                        .font(.callout).foregroundStyle(.white.opacity(0.76))
-                    HStack(spacing: 10) {
-                        if !game.allCompiledApps.isEmpty {
-                            Button { model.launch(game) } label: { Label("Play", systemImage: "play.fill") }
-                                .buttonStyle(.borderedProminent)
-                                
-                        } else if game.hasBasePackage {
-                            Button { local.showGame = game } label: { Label("Build for Mac", systemImage: "hammer.fill") }
-                                .buttonStyle(.borderedProminent)
-                                
-                        }
-                        Button("Details") { local.showGame = game }
-                            .buttonStyle(.bordered)
-                            
-                    }.tint(.white)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(18)
+        let status = GameLibraryStatus(lastBuildStatus: game.lastBuildStatus,
+                                       hasCompiledApp: !game.allCompiledApps.isEmpty,
+                                       hasBasePackage: game.hasBasePackage)
+        let statusTitle: String
+        let statusColor: Color
+        switch status {
+        case .building:
+            statusTitle = "Building"
+            statusColor = .orange
+        case .failed:
+            statusTitle = "Build failed"
+            statusColor = .red
+        case .readyToPlay:
+            statusTitle = "Ready to play"
+            statusColor = .green
+        case .readyToBuild:
+            statusTitle = "Ready to build"
+            statusColor = .secondary
+        case .notBuilt:
+            statusTitle = "Not built yet"
+            statusColor = .secondary
         }
-        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.15)))
-        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
-        .animation(.easeInOut(duration: 0.22), value: game.id)
+
+        let appCount = game.allCompiledApps.count
+        let detail = appCount > 0
+            ? "\(appCount) Mac app\(appCount == 1 ? "" : "s") in your library."
+            : (game.hasBasePackage ? "Game files are ready to build for Mac." : "Add game files to start a build.")
+
+        return HStack(alignment: .center, spacing: 22) {
+            Group {
+                if let path = game.displayCoverPath, let art = ArtworkSizing.image(at: path) {
+                    Image(nsImage: art).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        Color(nsColor: .underPageBackgroundColor)
+                        Image(systemName: "gamecontroller")
+                            .font(.system(size: 34, weight: .regular))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .frame(width: 132, height: 164)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 7) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7)
+                    Text(statusTitle).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                }
+                Text(game.name)
+                    .font(.title.weight(.semibold))
+                    .lineLimit(2)
+                Text(detail).font(.body).foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    if !game.allCompiledApps.isEmpty {
+                        Button { model.launch(game) } label: { Label("Play", systemImage: "play.fill") }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                    } else if game.hasBasePackage {
+                        Button { local.showGame = game } label: { Label("Build for Mac", systemImage: "hammer") }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                    }
+                    Button("Details") { local.showGame = game }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                }
+                .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 188, maxHeight: 188, alignment: .leading)
+        .animation(.easeInOut(duration: 0.2), value: game.id)
     }
 
     private func chooseCompiledApp() {
@@ -2095,8 +2130,7 @@ private struct GameLibraryTile: View {
     let navigationRow: Int
     let navigationColumn: Int
     let action: () -> Void
-    private var size: CGFloat { consoleMode ? 260 : 176 }
-    private var cardWidth: CGFloat { size + 22 }
+    private var size: CGFloat { consoleMode ? 260 : 172 }
     private var status: GameLibraryStatus {
         GameLibraryStatus(lastBuildStatus: game.lastBuildStatus,
                           hasCompiledApp: !game.allCompiledApps.isEmpty,
@@ -2112,32 +2146,43 @@ private struct GameLibraryTile: View {
     }
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 7) {
-                ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                Group {
                     if let path = game.displayCoverPath, let image = ArtworkSizing.image(at: path) {
                         CoverArtwork(image: image, size: size)
                     } else {
                         ZStack {
-                            Color.accentColor.opacity(0.75)
-                            Image(systemName: "gamecontroller.fill").font(.system(size: 40)).foregroundStyle(.white.opacity(0.45))
-                        }.frame(width: size, height: size)
+                            Color(nsColor: .underPageBackgroundColor)
+                            Image(systemName: "gamecontroller")
+                                .font(.system(size: 36, weight: .regular))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(width: size, height: size)
                     }
-                    Text(status.title).font(.system(size: consoleMode ? 11 : 9, weight: .bold)).padding(.horizontal, 9).padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule()).foregroundStyle(statusColor).padding(8)
                 }
                 .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Text(game.name).font(.system(size: consoleMode ? 15 : 13, weight: .bold)).lineLimit(1)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(selected ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.08),
+                                      lineWidth: selected ? 2 : 1)
+                }
+
+                Text(game.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(.primary)
-                    .frame(width: cardWidth - 20, alignment: .leading)
-            }
-            .padding(10)
-            .frame(width: cardWidth, alignment: .topLeading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(selected ? 1 : 0.62),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(selected ? (consoleMode ? Color.orange.opacity(0.65) : Color.accentColor.opacity(0.4)) : Color.primary.opacity(0.06), lineWidth: selected ? 1.5 : 1)
+                    .frame(width: size, alignment: .leading)
+
+                HStack(spacing: 6) {
+                    Circle().fill(statusColor).frame(width: 6, height: 6)
+                    Text(statusLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(width: size, alignment: .leading)
             }
             .contentShape(Rectangle())
         }
@@ -2145,7 +2190,17 @@ private struct GameLibraryTile: View {
         .controllerNavigable(id: "games.card.\(game.id)", order: navigationOrder,
                              revision: "\(game.name)|\(game.allCompiledApps.count)|\(game.lastBuildStatus ?? "none")",
                              row: navigationRow, column: navigationColumn,
-                             cornerRadius: 22, action: action)
+                             cornerRadius: 10, action: action)
+    }
+
+    private var statusLabel: String {
+        switch status {
+        case .building: "Building"
+        case .failed: "Build failed"
+        case .readyToPlay: "Ready to play"
+        case .readyToBuild: "Ready to build"
+        case .notBuilt: "Not built yet"
+        }
     }
 }
 
