@@ -10,12 +10,13 @@ enum ArtworkSizing {
         return CGSize(width: source.width * scale, height: source.height * scale)
     }
 
-    static func image(at path: String) -> NSImage? {
-        let cacheKey = path as NSString
+    static func image(at path: String, cropTransparentMargins: Bool = false) -> NSImage? {
+        let cacheKey = "\(path)|crop:\(cropTransparentMargins)" as NSString
         if let cached = imageCache.object(forKey: cacheKey) { return cached }
         guard let source = NSImage(contentsOfFile: path) else { return nil }
-        imageCache.setObject(source, forKey: cacheKey)
-        return source
+        let image = cropTransparentMargins ? trimTransparentMargins(in: source) : source
+        imageCache.setObject(image, forKey: cacheKey)
+        return image
     }
 
     static func trimTransparentMargins(in image: NSImage, alphaThreshold: CGFloat = 0.03) -> NSImage {

@@ -722,7 +722,9 @@ private struct GamePoster: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             ZStack(alignment: .bottomLeading) {
-                if let path = game.displayCoverPath, let image = ArtworkSizing.image(at: path) {
+                if let path = game.displayCoverPath,
+                   let image = ArtworkSizing.image(at: path,
+                                                   cropTransparentMargins: URL(fileURLWithPath: path).lastPathComponent.hasSuffix("-icon.png")) {
                     CoverArtwork(image: image, size: posterSize)
                 } else {
                     LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -2156,7 +2158,9 @@ private struct GameLibraryTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 Group {
-                    if let path = game.displayCoverPath, let image = ArtworkSizing.image(at: path) {
+                    if let path = game.displayCoverPath,
+                       let image = ArtworkSizing.image(at: path,
+                                                       cropTransparentMargins: URL(fileURLWithPath: path).lastPathComponent.hasSuffix("-icon.png")) {
                         CoverArtwork(image: image, size: size)
                     } else {
                         ZStack {
