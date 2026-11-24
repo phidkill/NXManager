@@ -5,6 +5,13 @@ import IOKit.hid
 import SwiftUI
 import UniformTypeIdentifiers
 
+private enum NXPalette {
+    static let ember = Color(red: 0.83, green: 0.34, blue: 0.20)
+    static let midnight = Color(red: 0.11, green: 0.16, blue: 0.22)
+    static let plum = Color(red: 0.31, green: 0.20, blue: 0.31)
+    static let leaf = Color(red: 0.19, green: 0.32, blue: 0.28)
+}
+
 @MainActor private final class ContentViewModel: ObservableObject {
     @Published var search = ""
     @Published var showGame: Game?
@@ -230,6 +237,7 @@ struct ContentView: View {
             Button("OK", role: .cancel) { model.alertMessage = nil }
         } message: { Text(model.alertMessage ?? "") }
         .preferredColorScheme(preferredColorScheme)
+        .tint(NXPalette.ember)
         .onAppear {
             model.checkSetupRequirements()
             if !didCompleteSetup { local.showSetupWizard = true }
@@ -330,9 +338,9 @@ struct ContentView: View {
                 Text(title).font(.system(size: 14, weight: .medium))
                 Spacer()
             }
-            .foregroundStyle(Color.primary.opacity(selected ? 1 : 0.76))
+            .foregroundStyle(selected ? NXPalette.ember : Color.primary.opacity(0.76))
             .padding(.leading, 15).padding(.trailing, 12).frame(height: 50)
-            .background(selected ? Color.accentColor.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+            .background(selected ? NXPalette.ember.opacity(0.11) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain).padding(.horizontal, 10)
@@ -577,7 +585,6 @@ struct ContentView: View {
         // Keep the Games header and action buttons at a fixed position while
         // Console Mode changes input handling. Resizing this full-height view
         // made SwiftUI center its content under the title bar on macOS.
-        .tint(Color(red: 0.76, green: 0.36, blue: 0.22))
         .padding(30)
         .onChange(of: selectedLibraryGame?.id) { _, id in
             model.selectedGameID = id
@@ -613,53 +620,47 @@ struct ContentView: View {
             ? "\(appCount) Mac app\(appCount == 1 ? "" : "s") in your library."
             : (game.hasBasePackage ? "Game files are ready to build for Mac." : "Add game files to start a build.")
 
-        return HStack(alignment: .center, spacing: 22) {
-            Group {
-                if let path = game.displayCoverPath, let art = ArtworkSizing.image(at: path) {
+        let bannerPath = game.bannerPath ?? game.displayCoverPath
+        return ZStack(alignment: .leading) {
+            GeometryReader { geometry in
+                if let bannerPath, let art = ArtworkSizing.image(at: bannerPath) {
                     Image(nsImage: art).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .overlay(Color(red: 0.08, green: 0.10, blue: 0.14).opacity(0.72))
                 } else {
-                    ZStack {
-                        Color(nsColor: .underPageBackgroundColor)
-                        Image(systemName: "gamecontroller")
-                            .font(.system(size: 34, weight: .regular))
-                            .foregroundStyle(.tertiary)
-                    }
+                    LinearGradient(colors: [NXPalette.midnight, NXPalette.plum, NXPalette.leaf],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
                 }
             }
-            .frame(width: 132, height: 164)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 7) {
-                    Circle().fill(statusColor).frame(width: 7, height: 7)
-                    Text(statusTitle).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            LinearGradient(colors: [.black.opacity(0.22), .black.opacity(0.38), .black.opacity(0.72)],
+                           startPoint: .leading, endPoint: .trailing)
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 8) {
+                    Circle().fill(statusColor).frame(width: 8, height: 8)
+                    Text(statusTitle.uppercased()).font(.caption.weight(.bold)).tracking(1.2)
                 }
-                Text(game.name)
-                    .font(.title.weight(.semibold))
-                    .lineLimit(2)
-                Text(detail).font(.body).foregroundStyle(.secondary)
-
+                Text(game.name).font(.system(size: 30, weight: .bold)).lineLimit(2)
+                Text(detail).font(.callout).foregroundStyle(.white.opacity(0.82))
                 HStack(spacing: 10) {
                     if !game.allCompiledApps.isEmpty {
                         Button { model.launch(game) } label: { Label("Play", systemImage: "play.fill") }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
+                            .buttonStyle(.borderedProminent).controlSize(.large).tint(NXPalette.ember)
                     } else if game.hasBasePackage {
                         Button { local.showGame = game } label: { Label("Build for Mac", systemImage: "hammer") }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
+                            .buttonStyle(.borderedProminent).controlSize(.large)
                     }
                     Button("Details") { local.showGame = game }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+                        .buttonStyle(.bordered).controlSize(.large).tint(.white)
                 }
                 .padding(.top, 2)
             }
-            Spacer(minLength: 0)
+            .padding(24)
+            .foregroundStyle(.white)
         }
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, minHeight: 188, maxHeight: 188, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 236, maxHeight: 236, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.12)))
         .animation(.easeInOut(duration: 0.2), value: game.id)
     }
 
@@ -742,7 +743,6 @@ private struct GamePoster: View {
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(isFocused ? Color.accentColor : .clear, lineWidth: 2))
-            .shadow(color: .black.opacity(isFocused ? 0.22 : 0.10), radius: isFocused ? 12 : 6, y: 5)
             Text(game.name).font(.system(size: max(17, posterSize * 0.072), weight: .semibold)).lineLimit(1).frame(width: posterSize, alignment: .leading)
             Text(statusDescription)
                 .font(.system(size: max(13, posterSize * 0.052))).foregroundStyle(.secondary).lineLimit(1).frame(width: posterSize, alignment: .leading)
@@ -917,6 +917,28 @@ struct FirstLaunchSetupView: View {
     }
 }
 
+private struct NXPageHeader: View {
+    let title: String
+    let detail: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: 15) {
+            Image(systemName: symbol)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(NXPalette.ember)
+                .frame(width: 46, height: 46)
+                .background(NXPalette.ember.opacity(0.12), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.largeTitle.weight(.bold))
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+    }
+}
+
 struct ImportView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var form = ImportFormState()
@@ -924,17 +946,12 @@ struct ImportView: View {
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("Import Games").font(.largeTitle.bold())
-                    Text("Add source packages to build with NXNative, or add an existing Mac app to your library.")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 8)
+                NXPageHeader(title: "Import", detail: "Bring games into your library", symbol: "square.and.arrow.down")
             }
 
             Section {
                 HStack(spacing: 8) {
-                    Text("Build a Game").font(.headline)
+                    Text("Build a Game").font(.title3.weight(.semibold))
                     Button { showFolderInfo() } label: { Image(systemName: "info.circle") }
                         .buttonStyle(.plain).help("What to put in the game folder")
                         
@@ -1111,11 +1128,7 @@ struct ControllerView: View {
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Controller").font(.largeTitle.bold())
-                    Text("Detect connected controllers and check whether NXNative can remap their input.")
-                        .foregroundStyle(.secondary)
-                }.padding(.vertical, 8)
+                NXPageHeader(title: "Controller", detail: "Connected devices and game profiles", symbol: "gamecontroller")
             }
             Section("Connected Controllers") {
                 if state.devices.isEmpty {
@@ -2021,12 +2034,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Settings").font(.largeTitle.bold())
-                    Text("Choose the app appearance and configure NXNative and your build folders.")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 8)
+                NXPageHeader(title: "Settings", detail: "Appearance, engine and build locations", symbol: "slider.horizontal.3")
             }
             Section("Appearance") {
                 Picker("Theme", selection: $model.appearance) {

@@ -11,15 +11,11 @@ enum ArtworkSizing {
     }
 
     static func image(at path: String) -> NSImage? {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
-        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-        let fileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-        let cacheKey = "\(path)|\(modified)|\(fileSize)" as NSString
+        let cacheKey = path as NSString
         if let cached = imageCache.object(forKey: cacheKey) { return cached }
         guard let source = NSImage(contentsOfFile: path) else { return nil }
-        let trimmed = trimTransparentMargins(in: source)
-        imageCache.setObject(trimmed, forKey: cacheKey)
-        return trimmed
+        imageCache.setObject(source, forKey: cacheKey)
+        return source
     }
 
     static func trimTransparentMargins(in image: NSImage, alphaThreshold: CGFloat = 0.03) -> NSImage {
