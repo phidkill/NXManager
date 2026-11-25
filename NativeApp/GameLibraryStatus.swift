@@ -1,8 +1,24 @@
 import AppKit
 import Foundation
+import ImageIO
 
 enum ArtworkSizing {
     private static let imageCache = NSCache<NSString, NSImage>()
+
+    static func loadImage(at path: String, maxPixelSize: Int, cropTransparentMargins: Bool) -> NSImage? {
+        let cacheKey = "\(path)|\(maxPixelSize)|\(cropTransparentMargins)" as NSString
+        if let cached = imageCache.object(forKey: cacheKey) { return cached }
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { return nil }
+        let rendered = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        let result = cropTransparentMargins ? trimTransparentMargins(in: rendered) : rendered
+        imageCache.setObject(result, forKey: cacheKey)
+        return result
+    }
 
     static func aspectFit(source: CGSize, inside container: CGSize) -> CGSize {
         guard source.width > 0, source.height > 0, container.width > 0, container.height > 0 else { return .zero }
@@ -60,6 +76,33 @@ enum ArtworkSizing {
                                                        width: maxX - minX + 1,
                                                        height: maxY - minY + 1)) else { return image }
         return NSImage(cgImage: cropped, size: NSSize(width: cropped.width, height: cropped.height))
+    }
+}
+
+import SwiftUI
+
+struct AsyncArtwork: View {
+    let path: String
+    let maxPixelSize: Int
+    var cropTransparentMargins = false
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).interpolation(.medium).resizable()
+            } else {
+                Color.clear
+            }
+        }
+        .task(id: "\(path)|\(maxPixelSize)|\(cropTransparentMargins)") {
+            let path = path
+            let maxPixelSize = maxPixelSize
+            let crop = cropTransparentMargins
+            image = await Task.detached(priority: .userInitiated) {
+                ArtworkSizing.loadImage(at: path, maxPixelSize: maxPixelSize, cropTransparentMargins: crop)
+            }.value
+        }
     }
 }
 

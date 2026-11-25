@@ -623,8 +623,8 @@ struct ContentView: View {
         let bannerPath = game.bannerPath ?? game.displayCoverPath
         return ZStack(alignment: .leading) {
             GeometryReader { geometry in
-                if let bannerPath, let art = ArtworkSizing.image(at: bannerPath) {
-                    Image(nsImage: art).resizable().scaledToFill()
+                if let bannerPath {
+                    AsyncArtwork(path: bannerPath, maxPixelSize: 1400).scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .overlay(Color(red: 0.08, green: 0.10, blue: 0.14).opacity(0.72))
@@ -722,10 +722,9 @@ private struct GamePoster: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             ZStack(alignment: .bottomLeading) {
-                if let path = game.displayCoverPath,
-                   let image = ArtworkSizing.image(at: path,
-                                                   cropTransparentMargins: URL(fileURLWithPath: path).lastPathComponent.hasSuffix("-icon.png")) {
-                    CoverArtwork(image: image, size: posterSize)
+                if let path = game.displayCoverPath {
+                    CoverArtwork(path: path, size: posterSize,
+                                 cropTransparentMargins: URL(fileURLWithPath: path).lastPathComponent.hasSuffix("-icon.png"))
                 } else {
                     LinearGradient(colors: palette, startPoint: .topLeading, endPoint: .bottomTrailing)
                     Image(systemName: "gamecontroller.fill")
@@ -2116,16 +2115,16 @@ struct SettingsView: View {
 }
 
 private struct CoverArtwork: View {
-    let image: NSImage
+    let path: String
     let size: CGFloat
+    let cropTransparentMargins: Bool
 
     var body: some View {
-        let canvas = CGSize(width: size, height: size)
-        let fittedSize = ArtworkSizing.aspectFit(source: image.size, inside: canvas)
         ZStack {
             Color.black.opacity(0.08)
-            Image(nsImage: image).interpolation(.high).resizable()
-                .frame(width: fittedSize.width, height: fittedSize.height)
+            AsyncArtwork(path: path, maxPixelSize: Int(size * 2), cropTransparentMargins: cropTransparentMargins)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
         }
         .frame(width: size, height: size)
         .clipped()
@@ -2158,10 +2157,9 @@ private struct GameLibraryTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 Group {
-                    if let path = game.displayCoverPath,
-                       let image = ArtworkSizing.image(at: path,
-                                                       cropTransparentMargins: URL(fileURLWithPath: path).lastPathComponent.hasSuffix("-icon.png")) {
-                        CoverArtwork(image: image, size: size)
+                    if let path = game.displayCoverPath {
+                        CoverArtwork(path: path, size: size,
+                                     cropTransparentMargins: URL(fileURLWithPath: path).lastPathComponent.hasSuffix("-icon.png"))
                     } else {
                         ZStack {
                             Color(nsColor: .underPageBackgroundColor)
